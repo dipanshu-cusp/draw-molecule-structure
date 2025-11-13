@@ -9,6 +9,9 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "ketcher-core": "^3.8.0",
+    "ketcher-react": "^3.8.0",
+    "ketcher-standalone": "^3.8.0",
     "next": "16.0.3",
     "react": "19.2.0",
     "react-dom": "19.2.0"
