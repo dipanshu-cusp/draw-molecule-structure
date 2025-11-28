@@ -1,4 +1,15 @@
-import MoleculeEditor from './components/MoleculeEditor';
+'use client';
+
+import dynamic from 'next/dynamic';
+
+const MoleculeEditor = dynamic(() => import("./components/MoleculeEditor"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-full items-center justify-center">
+      <div className="text-gray-600 dark:text-gray-400">Loading Molecule Editor...</div>
+    </div>
+  ),
+});
 
 export default function Home() {
   return (

@@ -37,32 +37,6 @@ export default function MoleculeEditor() {
     }
   };
 
-  const handleLoadExample = async () => {
-    if (!ketcherRef.current) return;
-
-    // Example: Benzene ring in SMILES format
-    const benzeneSMILES = 'c1ccccc1';
-    
-    try {
-      await ketcherRef.current.setMolecule(benzeneSMILES);
-      console.log('Loaded benzene structure');
-    } catch (error) {
-      console.error('Error loading structure:', error);
-    }
-  };
-
-  const handleClear = async () => {
-    if (!ketcherRef.current) return;
-
-    try {
-      await ketcherRef.current.setMolecule('');
-      setMoleculeData('');
-      console.log('Canvas cleared');
-    } catch (error) {
-      console.error('Error clearing canvas:', error);
-    }
-  };
-
   return (
     <div className="flex h-full flex-col lg:flex-row gap-4">
       {/* Ketcher Editor */}
@@ -74,28 +48,6 @@ export default function MoleculeEditor() {
 
       {/* Controls Panel */}
       <div className="lg:w-80 flex flex-col gap-4">
-        <div className="rounded-lg border border-gray-200 dark:border-gray-800 p-4 bg-white dark:bg-gray-900">
-          <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">
-            Controls
-          </h3>
-          
-          <div className="flex flex-col gap-3">
-            <button
-              onClick={handleLoadExample}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-            >
-              Load Benzene Example
-            </button>
-            
-            <button
-              onClick={handleClear}
-              className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors"
-            >
-              Clear Canvas
-            </button>
-          </div>
-        </div>
-
         <div className="rounded-lg border border-gray-200 dark:border-gray-800 p-4 bg-white dark:bg-gray-900">
           <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">
             Export Structure
@@ -146,18 +98,6 @@ export default function MoleculeEditor() {
               </div>
             )}
           </div>
-        </div>
-
-        <div className="rounded-lg border border-gray-200 dark:border-gray-800 p-4 bg-blue-50 dark:bg-blue-900/20">
-          <h3 className="text-sm font-semibold mb-2 text-blue-900 dark:text-blue-300">
-            Tips
-          </h3>
-          <ul className="text-xs text-blue-800 dark:text-blue-400 space-y-1">
-            <li>• Draw molecules using the tools in the editor</li>
-            <li>• Export to different chemical formats</li>
-            <li>• Use keyboard shortcuts for faster editing</li>
-            <li>• Click atoms and bonds to modify them</li>
-          </ul>
         </div>
       </div>
     </div>
