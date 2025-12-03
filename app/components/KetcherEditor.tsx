@@ -82,11 +82,9 @@ export default function KetcherEditor({ onInit }: KetcherEditorProps) {
             (window as any).__updateKetcherInstance = (newInstance: any) => {
               ketcherInstance = newInstance;
             };
-            
-            console.log('KetcherLogger patched successfully');
           }
         } catch (e) {
-          console.error('Could not patch KetcherLogger:', e);
+          // Silently handle logger patching errors in production
         }
         
         setEditor(() => ketcherReact.Editor);
@@ -105,17 +103,14 @@ export default function KetcherEditor({ onInit }: KetcherEditorProps) {
     if (ketcher && (window as any).__updateKetcherInstance) {
       try {
         (window as any).__updateKetcherInstance(ketcher);
-        console.log('Ketcher logger updated with real instance');
       } catch (err) {
-        console.warn('Could not update KetcherLogger:', err);
+        // Silently handle logger update errors
       }
     }
     
     if (onInit) {
       onInit(ketcher);
     }
-    
-    console.log('Ketcher initialized:', ketcher);
   };
 
   if (!Editor || !structureServiceProvider) {

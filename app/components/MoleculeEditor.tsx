@@ -10,7 +10,6 @@ export default function MoleculeEditor() {
 
   const handleKetcherInit = (ketcher: any) => {
     ketcherRef.current = ketcher;
-    console.log('Ketcher instance:', ketcher);
   };
 
   const handleGetStructure = async () => {
@@ -30,7 +29,6 @@ export default function MoleculeEditor() {
           break;
       }
       setMoleculeData(structure);
-      console.log(`Structure (${format}):`, structure);
     } catch (error) {
       console.error('Error getting structure:', error);
       setMoleculeData(`Error: ${error}`);
