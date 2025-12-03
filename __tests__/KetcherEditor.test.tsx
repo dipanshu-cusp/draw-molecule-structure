@@ -2,7 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import KetcherEditor from '../app/components/KetcherEditor'
 
 // Mock the ketcher modules before importing
-const mockEditor = jest.fn(({ onInit }: any) => {
+const mockEditor = jest.fn(({ onInit }: { onInit?: (ketcher: unknown) => void }) => {
   // Simulate editor initialization
   if (onInit) {
     setTimeout(() => {

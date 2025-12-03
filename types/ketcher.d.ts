@@ -5,10 +5,18 @@ declare module 'ketcher-standalone' {
 }
 
 declare module 'ketcher-react' {
+  export interface KetcherInstance {
+    getSmiles: () => Promise<string>;
+    getMolfile: () => Promise<string>;
+    getInchi: () => Promise<string>;
+    setMolecule: (molecule: string) => Promise<void>;
+    [key: string]: unknown;
+  }
+
   export interface EditorProps {
     staticResourcesUrl?: string;
-    structServiceProvider: any;
-    onInit?: (ketcher: any) => void;
+    structServiceProvider: unknown;
+    onInit?: (ketcher: KetcherInstance) => void;
     errorHandler?: (error: string) => void;
     buttons?: Record<string, { hidden?: boolean }>;
     disableMacromoleculesEditor?: boolean;

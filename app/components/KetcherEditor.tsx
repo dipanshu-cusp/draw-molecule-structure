@@ -3,15 +3,23 @@
 import { useEffect, useRef, useState } from 'react';
 import 'ketcher-react/dist/index.css';
 
+interface KetcherInstance {
+  getSmiles: () => Promise<string>;
+  getMolfile: () => Promise<string>;
+  getInchi: () => Promise<string>;
+  setMolecule: (molecule: string) => Promise<void>;
+  [key: string]: unknown;
+}
+
 interface KetcherEditorProps {
-  onInit?: (ketcher: any) => void;
+  onInit?: (ketcher: KetcherInstance) => void;
 }
 
 export default function KetcherEditor({ onInit }: KetcherEditorProps) {
-  const [Editor, setEditor] = useState<any>(null);
-  const [structureServiceProvider, setStructureServiceProvider] = useState<any>(null);
-  const ketcherRef = useRef<any>(null);
-  const loggerRef = useRef<any>(null);
+  const [Editor, setEditor] = useState<React.ComponentType | null>(null);
+  const [structureServiceProvider, setStructureServiceProvider] = useState<unknown>(null);
+  const ketcherRef = useRef<KetcherInstance | null>(null);
+  const loggerRef = useRef<unknown>(null);
 
   useEffect(() => {
     // Only run on client side
@@ -21,7 +29,7 @@ export default function KetcherEditor({ onInit }: KetcherEditorProps) {
         import('ketcher-react'),
         import('ketcher-standalone'),
         import('ketcher-core')
-      ]).then(([ketcherReact, standalone, ketcherCore]: [any, any, any]) => {
+      ]).then(([ketcherReact, standalone, ketcherCore]) => {
         // Store the logger reference for synchronous access later
         loggerRef.current = ketcherCore.KetcherLogger;
         
@@ -48,7 +56,6 @@ export default function KetcherEditor({ onInit }: KetcherEditorProps) {
             let ketcherInstance = mockKetcher;
             
             // Override the static getter
-            const originalDescriptor = Object.getOwnPropertyDescriptor(Logger, 'get');
             Object.defineProperty(Logger, 'get', {
               get() {
                 return ketcherInstance;
@@ -58,17 +65,19 @@ export default function KetcherEditor({ onInit }: KetcherEditorProps) {
             
             // Also patch the log, error, warn, info methods to not throw
             const patchMethod = (methodName: string) => {
-              const original = Logger[methodName];
+              const original = Logger[methodName as keyof typeof Logger];
               if (typeof original === 'function') {
-                Logger[methodName] = function(...args: any[]) {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                (Logger as any)[methodName] = function(...args: unknown[]) {
                   try {
                     // Check if we have a valid ketcher instance before calling
                     if (ketcherInstance && ketcherInstance._id) {
-                      return original.apply(this, args);
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      return (original as any).apply(this, args);
                     }
                     // Silently skip logging if no valid instance
                     return undefined;
-                  } catch (e) {
+                  } catch {
                     // Silently ignore errors
                     return undefined;
                   }
@@ -79,15 +88,17 @@ export default function KetcherEditor({ onInit }: KetcherEditorProps) {
             ['log', 'error', 'warn', 'info', 'debug'].forEach(patchMethod);
             
             // Store the setter function for later updates
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (window as any).__updateKetcherInstance = (newInstance: any) => {
               ketcherInstance = newInstance;
             };
           }
-        } catch (e) {
+        } catch {
           // Silently handle logger patching errors in production
         }
         
-        setEditor(() => ketcherReact.Editor);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        setEditor(() => ketcherReact.Editor as any);
         const provider = new standalone.StandaloneStructServiceProvider();
         setStructureServiceProvider(provider);
       }).catch((error) => {
@@ -96,14 +107,16 @@ export default function KetcherEditor({ onInit }: KetcherEditorProps) {
     }
   }, []);
 
-  const handleOnInit = (ketcher: any) => {
+  const handleOnInit = (ketcher: KetcherInstance) => {
     ketcherRef.current = ketcher;
     
     // Update the KetcherLogger with the real ketcher instance
-    if (ketcher && (window as any).__updateKetcherInstance) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const win = window as any;
+    if (ketcher && win.__updateKetcherInstance) {
       try {
-        (window as any).__updateKetcherInstance(ketcher);
-      } catch (err) {
+        win.__updateKetcherInstance(ketcher);
+      } catch {
         // Silently handle logger update errors
       }
     }
@@ -121,9 +134,12 @@ export default function KetcherEditor({ onInit }: KetcherEditorProps) {
     );
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const EditorComponent = Editor as any;
+
   return (
     <div className="h-full w-full">
-      <Editor
+      <EditorComponent
         staticResourcesUrl=""
         structServiceProvider={structureServiceProvider}
         onInit={handleOnInit}

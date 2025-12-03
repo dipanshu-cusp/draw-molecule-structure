@@ -4,7 +4,7 @@ import MoleculeEditor from '../app/components/MoleculeEditor'
 
 // Mock KetcherEditor component
 jest.mock('../app/components/KetcherEditor', () => {
-  return jest.fn(({ onInit }: any) => {
+  return jest.fn(({ onInit }: { onInit?: (ketcher: unknown) => void }) => {
     // Call onInit with a mock ketcher instance
     if (onInit) {
       const mockKetcher = {
@@ -182,8 +182,8 @@ describe('MoleculeEditor', () => {
     const consoleError = jest.spyOn(console, 'error').mockImplementation()
     
     // Override the mock to reject
-    const KetcherEditor = require('../app/components/KetcherEditor')
-    KetcherEditor.mockImplementation(({ onInit }: any) => {
+    const { default: KetcherEditor } = await import('../app/components/KetcherEditor')
+    ;(KetcherEditor as jest.Mock).mockImplementation(({ onInit }: { onInit?: (ketcher: unknown) => void }) => {
       if (onInit) {
         const mockKetcher = {
           getSmiles: jest.fn().mockRejectedValue(new Error('Export failed')),
@@ -213,8 +213,8 @@ describe('MoleculeEditor', () => {
 
   it('should not attempt to get structure if ketcher is not initialized', async () => {
     // Mock without calling onInit
-    const KetcherEditor = require('../app/components/KetcherEditor')
-    KetcherEditor.mockImplementation(() => {
+    const { default: KetcherEditor } = await import('../app/components/KetcherEditor')
+    ;(KetcherEditor as jest.Mock).mockImplementation(() => {
       return <div data-testid="ketcher-editor">Mocked Ketcher Editor</div>
     })
 

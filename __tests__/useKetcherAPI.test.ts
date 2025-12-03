@@ -2,7 +2,28 @@ import { renderHook, act } from '@testing-library/react'
 import { useKetcherAPI, EXAMPLE_MOLECULES } from '../app/components/useKetcherAPI'
 
 describe('useKetcherAPI', () => {
-  let mockKetcher: any
+  let mockKetcher: {
+    getSmiles: jest.Mock;
+    getMolfile: jest.Mock;
+    getInchi: jest.Mock;
+    getInchiKey: jest.Mock;
+    getKet: jest.Mock;
+    getRxn: jest.Mock;
+    getSmarts: jest.Mock;
+    getCml: jest.Mock;
+    getSdf: jest.Mock;
+    setMolecule: jest.Mock;
+    addFragment: jest.Mock;
+    layout: jest.Mock;
+    containsReaction: jest.Mock;
+    isQueryStructureSelected: jest.Mock;
+    generateImage: jest.Mock;
+    setSettings: jest.Mock;
+    editor: {
+      subscribe: jest.Mock;
+      unsubscribe: jest.Mock;
+    };
+  }
 
   beforeEach(() => {
     // Create a mock Ketcher instance
@@ -91,7 +112,7 @@ describe('useKetcherAPI', () => {
         result.current.initKetcher(mockKetcher)
       })
 
-      const output = await result.current.exportStructure('unsupported' as any)
+      const output = await result.current.exportStructure('unsupported' as 'smiles')
       
       expect(output).toBeNull()
       consoleError.mockRestore()

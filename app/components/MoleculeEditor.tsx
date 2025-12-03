@@ -3,12 +3,19 @@
 import { useRef, useState } from 'react';
 import KetcherEditor from './KetcherEditor';
 
+interface KetcherInstance {
+  getSmiles: () => Promise<string>;
+  getMolfile: () => Promise<string>;
+  getInchi: () => Promise<string>;
+  [key: string]: unknown;
+}
+
 export default function MoleculeEditor() {
-  const ketcherRef = useRef<any>(null);
+  const ketcherRef = useRef<KetcherInstance | null>(null);
   const [moleculeData, setMoleculeData] = useState<string>('');
   const [format, setFormat] = useState<'smiles' | 'molfile' | 'inchi'>('smiles');
 
-  const handleKetcherInit = (ketcher: any) => {
+  const handleKetcherInit = (ketcher: KetcherInstance) => {
     ketcherRef.current = ketcher;
   };
 
@@ -58,7 +65,7 @@ export default function MoleculeEditor() {
               </label>
               <select
                 value={format}
-                onChange={(e) => setFormat(e.target.value as any)}
+                onChange={(e) => setFormat(e.target.value as 'smiles' | 'molfile' | 'inchi')}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
               >
                 <option value="smiles">SMILES</option>

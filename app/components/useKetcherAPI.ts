@@ -7,11 +7,34 @@
 
 import { useRef } from 'react';
 
+interface KetcherInstance {
+  getSmiles: (extended?: boolean) => Promise<string>;
+  getMolfile: (version?: string) => Promise<string>;
+  getRxn: () => Promise<string>;
+  getKet: () => Promise<string>;
+  getSmarts: () => Promise<string>;
+  getCml: () => Promise<string>;
+  getSdf: () => Promise<string>;
+  getInchi: () => Promise<string>;
+  getInchiKey: () => Promise<string>;
+  setMolecule: (molecule: string, options?: unknown) => Promise<void>;
+  addFragment: (fragment: string, options?: unknown) => Promise<void>;
+  layout: () => Promise<void>;
+  containsReaction: () => boolean;
+  isQueryStructureSelected: () => boolean;
+  generateImage: (structure: string, options: unknown) => Promise<Blob>;
+  setSettings: (settings: Record<string, unknown>) => void;
+  editor: {
+    subscribe: (event: string, callback: (data: unknown) => void) => unknown;
+    unsubscribe: (event: string, subscription: unknown) => void;
+  };
+}
+
 export function useKetcherAPI() {
-  const ketcherRef = useRef<any>(null);
+  const ketcherRef = useRef<KetcherInstance | null>(null);
 
   // Initialize Ketcher reference
-  const initKetcher = (ketcher: any) => {
+  const initKetcher = (ketcher: KetcherInstance) => {
     ketcherRef.current = ketcher;
   };
 
@@ -122,7 +145,7 @@ export function useKetcherAPI() {
   };
 
   // Subscribe to change events
-  const subscribeToChanges = (callback: (eventData: any) => void) => {
+  const subscribeToChanges = (callback: (eventData: unknown) => void) => {
     if (!ketcherRef.current) return null;
 
     try {
@@ -135,7 +158,7 @@ export function useKetcherAPI() {
   };
 
   // Unsubscribe from change events
-  const unsubscribeFromChanges = (subscription: any) => {
+  const unsubscribeFromChanges = (subscription: unknown) => {
     if (!ketcherRef.current || !subscription) return;
 
     try {
@@ -146,7 +169,7 @@ export function useKetcherAPI() {
   };
 
   // Update settings
-  const updateSettings = (settings: Record<string, any>) => {
+  const updateSettings = (settings: Record<string, unknown>) => {
     if (!ketcherRef.current) return;
 
     try {
