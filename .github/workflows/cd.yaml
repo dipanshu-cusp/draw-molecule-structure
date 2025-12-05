@@ -43,20 +43,20 @@ jobs:
       - name: Build and tag Docker image
         run: |
           docker build \
-            -t asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules/molecule-search:staging-${{ github.sha }} \
-            -t asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules/molecule-search:staging-latest \
+            -t asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules/molecule-search-staging:${{ github.sha }} \
+            -t asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules/molecule-search-staging:latest \
             .
 
       - name: Push Docker image to Artifact Registry
         run: |
-          docker push asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules/molecule-search:staging-${{ github.sha }}
-          docker push asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules/molecule-search:staging-latest
+          docker push asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules/molecule-search-staging:${{ github.sha }}
+          docker push asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules/molecule-search-staging:latest
 
       - name: Deploy to Cloud Run (Staging)
         id: deploy
         run: |
           gcloud run deploy molecule-search-staging \
-            --image=asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules/molecule-search:staging-${{ github.sha }} \
+            --image=asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules/molecule-search-staging:${{ github.sha }} \
             --platform=managed \
             --region=${{ env.GCP_REGION }} \
             --allow-unauthenticated \
@@ -78,7 +78,7 @@ jobs:
           echo "### 🚀 Staging Deployment Successful" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Environment:** Staging" >> $GITHUB_STEP_SUMMARY
-          echo "**Image:** \`staging-${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Service URL:** ${{ steps.deploy.outputs.url }}" >> $GITHUB_STEP_SUMMARY
           echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
 
@@ -110,20 +110,20 @@ jobs:
       - name: Build and tag Docker image
         run: |
           docker build \
-            -t asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules/molecule-search:${{ github.event.release.tag_name }} \
-            -t asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules/molecule-search:prod-latest \
+            -t asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules/molecule-search-prod:${{ github.event.release.tag_name }} \
+            -t asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules/molecule-search-prod:latest \
             .
 
       - name: Push Docker image to Artifact Registry
         run: |
-          docker push asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules/molecule-search:${{ github.event.release.tag_name }}
-          docker push asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules/molecule-search:prod-latest
+          docker push asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules/molecule-search-prod:${{ github.event.release.tag_name }}
+          docker push asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules/molecule-search-prod:latest
 
       - name: Deploy to Cloud Run (Production)
         id: deploy
         run: |
           gcloud run deploy molecule-search-prod \
-            --image=asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules/molecule-search:${{ github.event.release.tag_name }} \
+            --image=asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules/molecule-search-prod:${{ github.event.release.tag_name }} \
             --platform=managed \
             --region=${{ env.GCP_REGION }} \
             --allow-unauthenticated \
