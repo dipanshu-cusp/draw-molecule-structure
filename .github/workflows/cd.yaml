@@ -1,0 +1,147 @@
+name: CD
+
+on:
+  push:
+    branches:
+      - main
+  release:
+    types: [published]
+
+env:
+  GCP_REGION: asia-south1
+
+jobs:
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment:
+      name: staging
+      url: ${{ steps.deploy.outputs.url }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIP_ID }}
+          service_account: ${{ secrets.GCP_SA_EMAIL }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
+
+      - name: Build and tag Docker image
+        run: |
+          docker build \
+            -t asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules:staging-${{ github.sha }} \
+            -t asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules:staging-latest \
+            .
+
+      - name: Push Docker image to Artifact Registry
+        run: |
+          docker push asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules:staging-${{ github.sha }}
+          docker push asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules:staging-latest
+
+      - name: Deploy to Cloud Run (Staging)
+        id: deploy
+        run: |
+          gcloud run deploy molecule-search-staging \
+            --image=asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules:staging-${{ github.sha }} \
+            --platform=managed \
+            --region=${{ env.GCP_REGION }} \
+            --allow-unauthenticated \
+            --memory=512Mi \
+            --cpu=1 \
+            --min-instances=0 \
+            --max-instances=10 \
+            --port=3000 \
+            --set-env-vars="NODE_ENV=production,NEXT_TELEMETRY_DISABLED=1"
+
+          # Get the service URL
+          SERVICE_URL=$(gcloud run services describe molecule-search-staging \
+            --region=${{ env.GCP_REGION }} \
+            --format='value(status.url)')
+          echo "url=$SERVICE_URL" >> $GITHUB_OUTPUT
+
+      - name: Create deployment summary
+        run: |
+          echo "### 🚀 Staging Deployment Successful" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** Staging" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`staging-${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Service URL:** ${{ steps.deploy.outputs.url }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    environment:
+      name: production
+      url: ${{ steps.deploy.outputs.url }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIP_ID }}
+          service_account: ${{ secrets.GCP_SA_EMAIL }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
+
+      - name: Build and tag Docker image
+        run: |
+          docker build \
+            -t asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules:${{ github.event.release.tag_name }} \
+            -t asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules:prod-latest \
+            .
+
+      - name: Push Docker image to Artifact Registry
+        run: |
+          docker push asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules:${{ github.event.release.tag_name }}
+          docker push asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules:prod-latest
+
+      - name: Deploy to Cloud Run (Production)
+        id: deploy
+        run: |
+          gcloud run deploy molecule-search-prod \
+            --image=asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules:${{ github.event.release.tag_name }} \
+            --platform=managed \
+            --region=${{ env.GCP_REGION }} \
+            --allow-unauthenticated \
+            --memory=1Gi \
+            --cpu=2 \
+            --min-instances=1 \
+            --max-instances=100 \
+            --port=3000 \
+            --set-env-vars="NODE_ENV=production,NEXT_TELEMETRY_DISABLED=1"
+
+          # Get the service URL
+          SERVICE_URL=$(gcloud run services describe molecule-search-prod \
+            --region=${{ env.GCP_REGION }} \
+            --format='value(status.url)')
+          echo "url=$SERVICE_URL" >> $GITHUB_OUTPUT
+
+      - name: Create deployment summary
+        run: |
+          echo "### 🎉 Production Deployment Successful" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** Production" >> $GITHUB_STEP_SUMMARY
+          echo "**Release:** ${{ github.event.release.tag_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`${{ github.event.release.tag_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Service URL:** ${{ steps.deploy.outputs.url }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Release Notes:** ${{ github.event.release.html_url }}" >> $GITHUB_STEP_SUMMARY
