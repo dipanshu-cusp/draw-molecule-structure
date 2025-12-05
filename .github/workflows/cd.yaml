@@ -43,20 +43,20 @@ jobs:
       - name: Build and tag Docker image
         run: |
           docker build \
-            -t asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules:staging-${{ github.sha }} \
-            -t asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules:staging-latest \
+            -t asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules/molecule-search:staging-${{ github.sha }} \
+            -t asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules/molecule-search:staging-latest \
             .
 
       - name: Push Docker image to Artifact Registry
         run: |
-          docker push asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules:staging-${{ github.sha }}
-          docker push asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules:staging-latest
+          docker push asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules/molecule-search:staging-${{ github.sha }}
+          docker push asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules/molecule-search:staging-latest
 
       - name: Deploy to Cloud Run (Staging)
         id: deploy
         run: |
           gcloud run deploy molecule-search-staging \
-            --image=asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules:staging-${{ github.sha }} \
+            --image=asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules/molecule-search:staging-${{ github.sha }} \
             --platform=managed \
             --region=${{ env.GCP_REGION }} \
             --allow-unauthenticated \
@@ -110,20 +110,20 @@ jobs:
       - name: Build and tag Docker image
         run: |
           docker build \
-            -t asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules:${{ github.event.release.tag_name }} \
-            -t asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules:prod-latest \
+            -t asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules/molecule-search:${{ github.event.release.tag_name }} \
+            -t asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules/molecule-search:prod-latest \
             .
 
       - name: Push Docker image to Artifact Registry
         run: |
-          docker push asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules:${{ github.event.release.tag_name }}
-          docker push asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules:prod-latest
+          docker push asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules/molecule-search:${{ github.event.release.tag_name }}
+          docker push asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules/molecule-search:prod-latest
 
       - name: Deploy to Cloud Run (Production)
         id: deploy
         run: |
           gcloud run deploy molecule-search-prod \
-            --image=asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules:${{ github.event.release.tag_name }} \
+            --image=asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules/molecule-search:${{ github.event.release.tag_name }} \
             --platform=managed \
             --region=${{ env.GCP_REGION }} \
             --allow-unauthenticated \
