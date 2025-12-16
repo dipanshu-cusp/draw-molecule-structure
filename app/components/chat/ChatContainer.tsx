@@ -11,12 +11,14 @@ interface ChatContainerProps {
   messages: Message[];
   isLoading?: boolean;
   className?: string;
+  onRelatedQuestionClick?: (question: string) => void;
 }
 
 export default function ChatContainer({
   messages,
   isLoading,
   className,
+  onRelatedQuestionClick,
 }: ChatContainerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -39,6 +41,7 @@ export default function ChatContainer({
             key={message.id}
             message={message}
             isLatest={index === messages.length - 1}
+            onRelatedQuestionClick={onRelatedQuestionClick}
           />
         ))}
 

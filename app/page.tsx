@@ -48,6 +48,15 @@ export default function Home() {
     setMoleculeData(undefined);
   }, [clearMessages]);
 
+  const handleRelatedQuestionClick = useCallback(
+    (question: string) => {
+      sendMessage({
+        content: question,
+      });
+    },
+    [sendMessage]
+  );
+
   return (
     <div
       className="flex min-h-screen flex-col bg-gradient-to-b from-gray-50 
@@ -194,7 +203,11 @@ export default function Home() {
               className="flex-1 flex flex-col min-h-0"
             >
               {/* Messages */}
-              <ChatContainer messages={messages} isLoading={isLoading} />
+              <ChatContainer 
+                messages={messages} 
+                isLoading={isLoading} 
+                onRelatedQuestionClick={handleRelatedQuestionClick}
+              />
 
               {/* Input Area */}
               <div
