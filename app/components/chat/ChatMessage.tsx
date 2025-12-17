@@ -1,19 +1,22 @@
 "use client";
 
+import { SourceAndReferences, Suggestions } from "@/app/components/chat";
 import { motion } from "framer-motion";
-import { Bot, User, Copy, Check, ExternalLink, MessageCircleQuestion } from "lucide-react";
+import { Bot, Check, Copy, User } from "lucide-react";
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { Message } from "../../types/chat";
 import { cn } from "../../lib/utils";
-
+import { Message } from "../../types/chat";
 interface ChatMessageProps {
   message: Message;
   isLatest?: boolean;
   onRelatedQuestionClick?: (question: string) => void;
 }
 
-export default function ChatMessage({ message, onRelatedQuestionClick }: ChatMessageProps) {
+export default function ChatMessage({
+  message,
+  onRelatedQuestionClick,
+}: ChatMessageProps) {
   const [copied, setCopied] = useState(false);
   const isUser = message.role === "user";
 
@@ -31,10 +34,11 @@ export default function ChatMessage({ message, onRelatedQuestionClick }: ChatMes
     }).format(date);
   };
 
-  const hasMetadata = message.metadata && (
-    (message.metadata.relatedQuestions && message.metadata.relatedQuestions.length > 0) ||
-    (message.metadata.references && message.metadata.references.length > 0)
-  );
+  const hasMetadata =
+    message.metadata &&
+    ((message.metadata.relatedQuestions &&
+      message.metadata.relatedQuestions.length > 0) ||
+      (message.metadata.references && message.metadata.references.length > 0));
 
   return (
     <motion.div
@@ -186,65 +190,16 @@ export default function ChatMessage({ message, onRelatedQuestionClick }: ChatMes
         </span>
 
         {/* Related Questions */}
-        {!isUser && !message.isStreaming && hasMetadata && message.metadata?.relatedQuestions && message.metadata.relatedQuestions.length > 0 && (
-          <div className="mt-4 w-full">
-            <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mb-2">
-              <MessageCircleQuestion className="w-3.5 h-3.5" />
-              <span className="font-medium">Related Questions</span>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {message.metadata.relatedQuestions.map((question, index) => (
-                <button
-                  key={index}
-                  onClick={() => onRelatedQuestionClick?.(question)}
-                  className="text-xs px-3 py-1.5 rounded-full bg-blue-50 dark:bg-blue-900/30 
-                    text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50 
-                    transition-colors border border-blue-200 dark:border-blue-800"
-                >
-                  {question}
-                </button>
-              ))}
-            </div>
-          </div>
+        {!isUser && !message.isStreaming && hasMetadata && (
+          <Suggestions
+            message={message}
+            onRelatedQuestionClick={onRelatedQuestionClick}
+          />
         )}
 
         {/* References */}
-        {!isUser && !message.isStreaming && hasMetadata && message.metadata?.references && message.metadata.references.length > 0 && (
-          <div className="mt-4 w-full">
-            <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mb-2">
-              <ExternalLink className="w-3.5 h-3.5" />
-              <span className="font-medium">Sources</span>
-            </div>
-            <div className="space-y-2">
-              {message.metadata.references.slice(0, 5).map((ref, index) => (
-                <div
-                  key={index}
-                  className="text-xs p-2 rounded-lg bg-gray-50 dark:bg-gray-800/50 
-                    border border-gray-200 dark:border-gray-700"
-                >
-                  <div className="font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    [{index + 1}] {ref.title || "Source Document"}
-                  </div>
-                  {ref.content && (
-                    <p className="text-gray-500 dark:text-gray-400 line-clamp-2">
-                      {ref.content.substring(0, 200)}...
-                    </p>
-                  )}
-                  {ref.uri && (
-                    <a
-                      href={ref.uri.startsWith("gs://") ? `https://storage.cloud.google.com/${ref.uri.slice(5)}` : ref.uri}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-500 hover:text-blue-600 dark:text-blue-400 
-                        dark:hover:text-blue-300 inline-flex items-center gap-1 mt-1"
-                    >
-                      View source <ExternalLink className="w-3 h-3" />
-                    </a>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
+        {!isUser && !message.isStreaming && hasMetadata && (
+          <SourceAndReferences message={message} />
         )}
       </div>
     </motion.div>

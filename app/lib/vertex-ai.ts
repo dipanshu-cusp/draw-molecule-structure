@@ -6,11 +6,10 @@
  */
 
 // Configuration from environment variables
-const PROJECT_ID = process.env.VERTEX_AI_PROJECT_ID || "1047667265419";
-const ENGINE_ID =
-  process.env.VERTEX_AI_ENGINE_ID || "golang-expert_1765885056446";
-const LOCATION = process.env.VERTEX_AI_LOCATION || "global";
-const COLLECTION = process.env.VERTEX_AI_COLLECTION || "default_collection";
+const PROJECT_ID = process.env.VERTEX_AI_PROJECT_ID;
+const ENGINE_ID = process.env.VERTEX_AI_ENGINE_ID;
+const LOCATION = process.env.VERTEX_AI_LOCATION;
+const COLLECTION = process.env.VERTEX_AI_COLLECTION;
 
 const BASE_URL = `https://discoveryengine.googleapis.com/v1alpha/projects/${PROJECT_ID}/locations/${LOCATION}/collections/${COLLECTION}/engines/${ENGINE_ID}/servingConfigs/default_search`;
 
@@ -21,7 +20,7 @@ const BASE_URL = `https://discoveryengine.googleapis.com/v1alpha/projects/${PROJ
 function cleanAnswerText(text: string): string {
   // Find any JSON object that looks like metadata at the end of the text
   // Pattern: text followed by JSON starting with { and containing metadata-like keys
-  
+
   // Look for the start of a JSON object with known metadata fields
   const patterns = [
     /\{"type"\s*:\s*"metadata".*$/,
@@ -30,7 +29,7 @@ function cleanAnswerText(text: string): string {
   ];
 
   let cleanedText = text;
-  
+
   for (const pattern of patterns) {
     const match = cleanedText.match(pattern);
     if (match && match.index !== undefined) {
