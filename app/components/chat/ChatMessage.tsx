@@ -6,16 +6,19 @@ import { Bot, Check, Copy, User } from "lucide-react";
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { cn } from "../../lib/utils";
-import { Message } from "../../types/chat";
+import { Message, MessageMetadata } from "../../types/chat";
+
 interface ChatMessageProps {
   message: Message;
   isLatest?: boolean;
   onRelatedQuestionClick?: (question: string) => void;
+  onShowSources?: (references: MessageMetadata["references"]) => void;
 }
 
 export default function ChatMessage({
   message,
   onRelatedQuestionClick,
+  onShowSources,
 }: ChatMessageProps) {
   const [copied, setCopied] = useState(false);
   const isUser = message.role === "user";
@@ -123,15 +126,62 @@ export default function ChatMessage({
                   </ol>
                 ),
                 li: ({ children }) => <li className="ml-2">{children}</li>,
-                code: ({ children }) => (
-                  <code
+                code: ({ className, children, ...props }) => {
+                  // Check if this is inline code or a code block
+                  // Code blocks are wrapped in <pre> tags, inline code is not
+                  const isInlineCode = !className;
+                  
+                  if (isInlineCode) {
+                    return (
+                      <code
+                        className={cn(
+                          "px-1.5 py-0.5 rounded text-sm font-mono",
+                          isUser ? "bg-blue-700/50" : "bg-gray-200 dark:bg-gray-700"
+                        )}
+                        {...props}
+                      >
+                        {children}
+                      </code>
+                    );
+                  }
+                  
+                  // Code block - extract language from className
+                  const language = className?.replace("language-", "") || "";
+                  return (
+                    <code
+                      className={cn(
+                        "block text-sm font-mono",
+                        className
+                      )}
+                      {...props}
+                    >
+                      {children}
+                    </code>
+                  );
+                },
+                pre: ({ children }) => (
+                  <pre
                     className={cn(
-                      "px-1.5 py-0.5 rounded text-sm font-mono",
-                      isUser ? "bg-blue-700/50" : "bg-gray-200 dark:bg-gray-700"
+                      "p-3 rounded-lg overflow-x-auto my-3 text-sm",
+                      isUser 
+                        ? "bg-blue-700/50" 
+                        : "bg-gray-200 dark:bg-gray-700"
                     )}
                   >
                     {children}
-                  </code>
+                  </pre>
+                ),
+                blockquote: ({ children }) => (
+                  <blockquote
+                    className={cn(
+                      "border-l-4 pl-3 my-3 italic",
+                      isUser
+                        ? "border-blue-400/50 text-blue-100"
+                        : "border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400"
+                    )}
+                  >
+                    {children}
+                  </blockquote>
                 ),
                 h1: ({ children }) => (
                   <h1 className="text-lg font-bold mb-2 mt-3 first:mt-0">
@@ -189,6 +239,14 @@ export default function ChatMessage({
           {formatTime(message.timestamp)}
         </span>
 
+        {/* References */}
+        {!isUser && !message.isStreaming && hasMetadata && (
+          <SourceAndReferences
+            message={message}
+            onShowSources={() => onShowSources?.(message.metadata?.references)}
+          />
+        )}
+
         {/* Related Questions */}
         {!isUser && !message.isStreaming && hasMetadata && (
           <Suggestions
@@ -197,10 +255,6 @@ export default function ChatMessage({
           />
         )}
 
-        {/* References */}
-        {!isUser && !message.isStreaming && hasMetadata && (
-          <SourceAndReferences message={message} />
-        )}
       </div>
     </motion.div>
   );

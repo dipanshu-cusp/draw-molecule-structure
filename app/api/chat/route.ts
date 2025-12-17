@@ -42,7 +42,12 @@ export async function POST(request: NextRequest) {
 
           for await (const chunk of generator) {
             if (chunk.type === "chunk" && chunk.content) {
-              sendChunk({ content: chunk.content });
+              // Check if this is a "replace" chunk (complete answer that differs from streamed content)
+              const chunkData: Record<string, unknown> = { content: chunk.content };
+              if ((chunk as any).replace) {
+                chunkData.replace = true;
+              }
+              sendChunk(chunkData);
             } else if (chunk.type === "metadata") {
               // Send session and metadata info
               sendChunk({

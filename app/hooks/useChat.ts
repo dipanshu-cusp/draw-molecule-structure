@@ -96,6 +96,7 @@ export function useChat(options: UseChatOptions = {}) {
         const decoder = new TextDecoder();
         let accumulatedContent = "";
         let metadata: MessageMetadata = {};
+        let buffer = ""; // Buffer for incomplete SSE messages
 
         while (true) {
           const { done, value } = await reader.read();
@@ -104,8 +105,14 @@ export function useChat(options: UseChatOptions = {}) {
             break;
           }
 
-          const chunk = decoder.decode(value, { stream: true });
-          const lines = chunk.split("\n");
+          // Append new data to buffer
+          buffer += decoder.decode(value, { stream: true });
+          
+          // Process complete lines from buffer
+          const lines = buffer.split("\n");
+          
+          // Keep the last incomplete line in buffer
+          buffer = lines.pop() || "";
 
           for (const line of lines) {
             if (line.startsWith("data: ")) {
@@ -172,7 +179,13 @@ export function useChat(options: UseChatOptions = {}) {
                   parsed.content || parsed.text || parsed.delta?.content || "";
 
                 if (content) {
-                  accumulatedContent += content;
+                  // Check if this is a "replace" chunk - means the complete answer
+                  // is different from what we've been streaming
+                  if (parsed.replace) {
+                    accumulatedContent = content;
+                  } else {
+                    accumulatedContent += content;
+                  }
 
                   // Update the assistant message with accumulated content
                   setState((prev) => ({
@@ -210,6 +223,29 @@ export function useChat(options: UseChatOptions = {}) {
                   }));
                 }
               }
+            }
+          }
+        }
+
+        // Process any remaining data in buffer
+        if (buffer.trim() && buffer.startsWith("data: ")) {
+          const data = buffer.slice(6).trim();
+          if (data && data !== "[DONE]") {
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed.content && !parsed.relatedQuestions && !parsed.references) {
+                accumulatedContent += parsed.content;
+                setState((prev) => ({
+                  ...prev,
+                  messages: prev.messages.map((m) =>
+                    m.id === assistantMessageId
+                      ? { ...m, content: accumulatedContent }
+                      : m
+                  ),
+                }));
+              }
+            } catch {
+              // Ignore incomplete JSON in buffer
             }
           }
         }

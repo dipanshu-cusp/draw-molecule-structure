@@ -16,8 +16,11 @@ const BASE_URL = `https://discoveryengine.googleapis.com/v1alpha/projects/${PROJ
 /**
  * Clean the answer text by removing any embedded JSON metadata
  * Sometimes the Vertex AI response includes metadata as part of the text
+ * NOTE: This should only be called on the FINAL complete text, not during streaming
  */
 function cleanAnswerText(text: string): string {
+  if (!text) return text;
+
   // Find any JSON object that looks like metadata at the end of the text
   // Pattern: text followed by JSON starting with { and containing metadata-like keys
 
@@ -33,7 +36,7 @@ function cleanAnswerText(text: string): string {
   for (const pattern of patterns) {
     const match = cleanedText.match(pattern);
     if (match && match.index !== undefined) {
-      cleanedText = cleanedText.slice(0, match.index).trim();
+      cleanedText = cleanedText.slice(0, match.index);
       break;
     }
   }
@@ -41,13 +44,13 @@ function cleanAnswerText(text: string): string {
   // Fallback: look for the literal pattern '{"type":"metadata"' anywhere
   const metadataIndex = cleanedText.indexOf('{"type":"metadata"');
   if (metadataIndex !== -1) {
-    cleanedText = cleanedText.slice(0, metadataIndex).trim();
+    cleanedText = cleanedText.slice(0, metadataIndex);
   }
 
   // Also check for '{"sessionId":' followed by numbers (session IDs are numeric)
   const sessionIdMatch = cleanedText.match(/\{"sessionId"\s*:\s*"[0-9]+"/);
   if (sessionIdMatch && sessionIdMatch.index !== undefined) {
-    cleanedText = cleanedText.slice(0, sessionIdMatch.index).trim();
+    cleanedText = cleanedText.slice(0, sessionIdMatch.index);
   }
 
   return cleanedText;
@@ -390,7 +393,7 @@ export async function searchAndAnswer(options: {
 
 /**
  * Stream-like response generator for SSE compatibility
- * This simulates streaming by chunking the answer text
+ * This uses the Vertex AI streamAnswer endpoint for true streaming
  */
 export async function* streamAnswer(options: {
   query: string;
@@ -402,34 +405,237 @@ export async function* streamAnswer(options: {
   relatedQuestions?: string[];
   references?: Array<{ title?: string; uri?: string; content?: string }>;
 }> {
+  const { query, sessionId } = options;
+
+  const accessToken = await getAccessToken();
+
+  // Build session path - use "-" for new session
+  const session = sessionId
+    ? `projects/${PROJECT_ID}/locations/${LOCATION}/collections/${COLLECTION}/engines/${ENGINE_ID}/sessions/${sessionId}`
+    : `projects/${PROJECT_ID}/locations/${LOCATION}/collections/${COLLECTION}/engines/${ENGINE_ID}/sessions/-`;
+
+  const requestBody = {
+    query: {
+      text: query,
+    },
+    session,
+    relatedQuestionsSpec: { enable: true },
+    answerGenerationSpec: {
+      ignoreAdversarialQuery: true,
+      ignoreNonAnswerSeekingQuery: false,
+      ignoreLowRelevantContent: true,
+      includeCitations: true,
+    },
+  };
+
+  // Use the streamAnswer endpoint for true streaming
+  const response = await fetch(`${BASE_URL}:streamAnswer`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(requestBody),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("Vertex AI streamAnswer error:", errorText);
+    throw new Error(
+      `Vertex AI streamAnswer failed: ${response.status} ${errorText}`
+    );
+  }
+
+  if (!response.body) {
+    throw new Error("No response body from Vertex AI");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+
+  let buffer = "";
+  let lastAnswerText = "";
+  let extractedSessionId: string | null = null;
+  let relatedQuestions: string[] = [];
+  let references: Array<{ title?: string; uri?: string; content?: string }> =
+    [];
+  let chunkCount = 0;
+  let totalBytesReceived = 0;
+
   try {
-    const result = await searchAndAnswer(options);
+    while (true) {
+      const { done, value } = await reader.read();
 
-    // Yield the answer in chunks to simulate streaming
-    const words = result.answer.split(" ");
-    const chunkSize = 3; // Send 3 words at a time
+      if (done) {
+        break;
+      }
 
-    for (let i = 0; i < words.length; i += chunkSize) {
-      const chunk = words.slice(i, i + chunkSize).join(" ");
-      yield {
-        type: "chunk",
-        content: chunk + (i + chunkSize < words.length ? " " : ""),
-      };
-      // Small delay to simulate streaming
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      const chunk = decoder.decode(value, { stream: true });
+      totalBytesReceived += value.length;
+      chunkCount++;
+
+      buffer += chunk;
+
+      // The stream returns JSON objects, potentially multiple per chunk
+      // Each object is on its own line or concatenated
+      // Try to parse complete JSON objects from the buffer
+
+      // Look for complete JSON objects in the buffer
+      let startIndex = 0;
+      let braceCount = 0;
+      let inString = false;
+      let escapeNext = false;
+      let objectStart = -1;
+
+      for (let i = 0; i < buffer.length; i++) {
+        const char = buffer[i];
+
+        if (escapeNext) {
+          escapeNext = false;
+          continue;
+        }
+
+        if (char === "\\" && inString) {
+          escapeNext = true;
+          continue;
+        }
+
+        if (char === '"' && !escapeNext) {
+          inString = !inString;
+          continue;
+        }
+
+        if (inString) continue;
+
+        if (char === "{") {
+          if (braceCount === 0) {
+            objectStart = i;
+          }
+          braceCount++;
+        } else if (char === "}") {
+          braceCount--;
+          if (braceCount === 0 && objectStart !== -1) {
+            // Found a complete JSON object
+            const jsonStr = buffer.slice(objectStart, i + 1);
+            startIndex = i + 1;
+
+            try {
+              const parsed = JSON.parse(jsonStr) as VertexAnswerResponse;
+
+              const answerState = parsed.answer?.state;
+              const currentAnswerText = parsed.answer?.answerText || "";
+
+              // Extract session ID if available
+              if (parsed.session?.name) {
+                extractedSessionId =
+                  parsed.session.name.split("/sessions/")[1] || null;
+              }
+
+              // Handle the final SUCCEEDED state - this contains the complete answer
+              if (answerState === "SUCCEEDED" && currentAnswerText) {
+                // Send the complete answer, but only the part we haven't sent yet
+                if (currentAnswerText.length > lastAnswerText.length) {
+                  if (currentAnswerText.startsWith(lastAnswerText)) {
+                    // We can send just the delta
+                    const delta = currentAnswerText.slice(
+                      lastAnswerText.length
+                    );
+                    if (delta) {
+                      yield { type: "chunk", content: delta };
+                    }
+                  } else {
+                    // The final answer is different from what we streamed
+                    // Send a special "replace" signal with the complete answer
+                    yield {
+                      type: "chunk",
+                      content: currentAnswerText,
+                      replace: true,
+                    } as any;
+                  }
+                  lastAnswerText = currentAnswerText;
+                }
+              }
+              // During STREAMING state, try to show incremental progress
+              else if (answerState === "STREAMING" && currentAnswerText) {
+                // Only process if this text is longer and builds on what we have
+                if (
+                  currentAnswerText.length > lastAnswerText.length &&
+                  currentAnswerText.startsWith(lastAnswerText)
+                ) {
+                  const delta = currentAnswerText.slice(lastAnswerText.length);
+
+                  if (delta) {
+                    yield { type: "chunk", content: delta };
+                  }
+                  lastAnswerText = currentAnswerText;
+                } else if (lastAnswerText === "" && currentAnswerText) {
+                  // First content we see
+                  yield { type: "chunk", content: currentAnswerText };
+                  lastAnswerText = currentAnswerText;
+                }
+              }
+
+              // Extract related questions (usually in final response)
+              if (
+                parsed.answer?.relatedQuestions &&
+                parsed.answer.relatedQuestions.length > 0
+              ) {
+                relatedQuestions = parsed.answer.relatedQuestions;
+              }
+
+              // Extract references
+              if (
+                parsed.answer?.references &&
+                parsed.answer.references.length > 0
+              ) {
+                references = [];
+                for (const ref of parsed.answer.references) {
+                  if (ref.unstructuredDocumentInfo) {
+                    references.push({
+                      title: ref.unstructuredDocumentInfo.title,
+                      uri: ref.unstructuredDocumentInfo.uri,
+                      content:
+                        ref.unstructuredDocumentInfo.chunkContents?.[0]
+                          ?.content,
+                    });
+                  } else if (ref.chunkInfo) {
+                    references.push({
+                      title: ref.chunkInfo.documentMetadata?.title,
+                      uri: ref.chunkInfo.documentMetadata?.uri,
+                      content: ref.chunkInfo.content,
+                    });
+                  }
+                }
+              }
+            } catch (parseError) {
+              // JSON parsing failed, might be incomplete - keep in buffer
+              console.error("[Vertex AI Stream] JSON parse error:", parseError);
+              console.error(
+                "[Vertex AI Stream] Failed JSON string preview:",
+                jsonStr.substring(0, 200)
+              );
+            }
+
+            objectStart = -1;
+          }
+        }
+      }
+
+      // Keep unparsed content in buffer
+      if (startIndex > 0) {
+        buffer = buffer.slice(startIndex);
+      }
     }
 
-    // Yield metadata at the end
     yield {
       type: "metadata",
-      sessionId: result.sessionId,
-      relatedQuestions: result.relatedQuestions,
-      references: result.references,
+      sessionId: extractedSessionId,
+      relatedQuestions,
+      references,
     };
 
     yield { type: "done" };
   } catch (error) {
-    console.error("Error in streamAnswer:", error);
     throw error;
   }
 }
