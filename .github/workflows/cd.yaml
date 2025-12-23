@@ -57,6 +57,7 @@ jobs:
         run: |
           gcloud run deploy molecule-search-staging \
             --image=asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules/molecule-search-staging:${{ github.sha }} \
+            --service-account=${{ secrets.GCP_CLOUD_RUN_SERVICE_ACC }} \
             --platform=managed \
             --region=${{ env.GCP_REGION }} \
             --allow-unauthenticated \
@@ -124,6 +125,7 @@ jobs:
         run: |
           gcloud run deploy molecule-search-prod \
             --image=asia-south1-docker.pkg.dev/upheld-quasar-473307-h1/draw-molecules/molecule-search-prod:${{ github.event.release.tag_name }} \
+            --service-account=${{ secrets.GCP_CLOUD_RUN_SERVICE_ACC }} \
             --platform=managed \
             --region=${{ env.GCP_REGION }} \
             --allow-unauthenticated \
