@@ -5,6 +5,8 @@
  * for search and answer generation with session support for follow-up questions.
  */
 
+import { GoogleAuth } from "google-auth-library";
+
 // Configuration from environment variables
 const PROJECT_ID = process.env.VERTEX_AI_PROJECT_ID;
 const ENGINE_ID = process.env.VERTEX_AI_ENGINE_ID;
@@ -148,7 +150,6 @@ export interface VertexAnswerResponse {
   session?: {
     name?: string;
     state?: string;
-    userPseudoId?: string;
     turns?: Array<{
       query?: { text?: string; queryId?: string };
       answer?: string;
@@ -172,24 +173,50 @@ export interface AnswerOptions {
 
 /**
  * Get access token for Google Cloud API authentication
- * In production, use a service account or appropriate authentication method
+ * Uses GoogleAuth library for Cloud Run, falls back to gcloud CLI for local dev
  */
+
+// Create a GoogleAuth instance for Cloud Run / GCP environments
+const auth = new GoogleAuth({
+  scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+});
+
 async function getAccessToken(): Promise<string> {
-  // Option 1: Use environment variable (for deployed environments)
+  // Option 1: Use environment variable (for manual override)
   if (process.env.GOOGLE_ACCESS_TOKEN) {
     return process.env.GOOGLE_ACCESS_TOKEN;
   }
 
-  // Option 2: Use gcloud CLI (for local development)
-  // This requires gcloud to be installed and authenticated
+  // If env is Cloud RUN
+  if (process.env.K_SERVICE) {
+    // Option 2: Use Google Auth Library (works in Cloud Run, GCE, GKE, etc.)
+    try {
+      const client = await auth.getClient();
+      const token = await client.getAccessToken();
+      if (token.token) {
+        return token.token;
+      }
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error";
+      console.error(
+        "Failed to get access token using Google Auth Library:",
+        errorMessage
+      );
+      throw new Error(
+        `Unable to authenticate with Google Cloud. Please ensure the service account has the necessary permissions.`
+      );
+    }
+  }
+
+  // Option 3: Use gcloud CLI (for local development)
   try {
     const { execSync } = await import("child_process");
 
-    // Use execSync for more reliable execution
     const token = execSync("gcloud auth print-access-token", {
       encoding: "utf-8",
-      timeout: 10000, // 10 second timeout
-      stdio: ["pipe", "pipe", "pipe"], // Capture stderr
+      timeout: 10000,
+      stdio: ["pipe", "pipe", "pipe"],
     }).trim();
 
     if (!token || token.includes("ERROR")) {
@@ -202,7 +229,6 @@ async function getAccessToken(): Promise<string> {
       error instanceof Error ? error.message : "Unknown error";
     console.error("Failed to get access token from gcloud:", errorMessage);
 
-    // Provide helpful error message
     throw new Error(
       `Unable to authenticate with Google Cloud. Please run 'gcloud auth login' to refresh your credentials, or set the GOOGLE_ACCESS_TOKEN environment variable.`
     );
@@ -415,7 +441,7 @@ export async function* streamAnswer(options: {
     ? `projects/${PROJECT_ID}/locations/${LOCATION}/collections/${COLLECTION}/engines/${ENGINE_ID}/sessions/${sessionId}`
     : `projects/${PROJECT_ID}/locations/${LOCATION}/collections/${COLLECTION}/engines/${ENGINE_ID}/sessions/-`;
 
-  const requestBody = {
+  const requestBody: Record<string, unknown> = {
     query: {
       text: query,
     },
