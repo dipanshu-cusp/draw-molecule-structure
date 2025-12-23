@@ -16,6 +16,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "framer-motion": "^12.23.25",
+    "google-auth-library": "^10.5.0",
     "ketcher-core": "^3.8.0",
     "ketcher-react": "^3.8.0",
     "ketcher-standalone": "^3.8.0",

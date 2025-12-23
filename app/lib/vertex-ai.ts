@@ -5,6 +5,8 @@
  * for search and answer generation with session support for follow-up questions.
  */
 
+import { GoogleAuth } from "google-auth-library";
+
 // Configuration from environment variables
 const PROJECT_ID = process.env.VERTEX_AI_PROJECT_ID;
 const ENGINE_ID = process.env.VERTEX_AI_ENGINE_ID;
@@ -12,6 +14,9 @@ const LOCATION = process.env.VERTEX_AI_LOCATION;
 const COLLECTION = process.env.VERTEX_AI_COLLECTION;
 
 const BASE_URL = `https://discoveryengine.googleapis.com/v1alpha/projects/${PROJECT_ID}/locations/${LOCATION}/collections/${COLLECTION}/engines/${ENGINE_ID}/servingConfigs/default_search`;
+
+// Base URL for session operations (without servingConfigs)
+const SESSIONS_BASE_URL = `https://discoveryengine.googleapis.com/v1alpha/projects/${PROJECT_ID}/locations/${LOCATION}/collections/${COLLECTION}/engines/${ENGINE_ID}/sessions`;
 
 /**
  * Clean the answer text by removing any embedded JSON metadata
@@ -172,24 +177,50 @@ export interface AnswerOptions {
 
 /**
  * Get access token for Google Cloud API authentication
- * In production, use a service account or appropriate authentication method
+ * Uses GoogleAuth library for Cloud Run, falls back to gcloud CLI for local dev
  */
+
+// Create a GoogleAuth instance for Cloud Run / GCP environments
+const auth = new GoogleAuth({
+  scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+});
+
 async function getAccessToken(): Promise<string> {
-  // Option 1: Use environment variable (for deployed environments)
+  // Option 1: Use environment variable (for manual override)
   if (process.env.GOOGLE_ACCESS_TOKEN) {
     return process.env.GOOGLE_ACCESS_TOKEN;
   }
 
-  // Option 2: Use gcloud CLI (for local development)
-  // This requires gcloud to be installed and authenticated
+  // If env is Cloud RUN
+  if (process.env.K_SERVICE) {
+    // Option 2: Use Google Auth Library (works in Cloud Run, GCE, GKE, etc.)
+    try {
+      const client = await auth.getClient();
+      const token = await client.getAccessToken();
+      if (token.token) {
+        return token.token;
+      }
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error";
+      console.error(
+        "Failed to get access token using Google Auth Library:",
+        errorMessage
+      );
+      throw new Error(
+        `Unable to authenticate with Google Cloud. Please ensure the service account has the necessary permissions.`
+      );
+    }
+  }
+
+  // Option 3: Use gcloud CLI (for local development)
   try {
     const { execSync } = await import("child_process");
 
-    // Use execSync for more reliable execution
     const token = execSync("gcloud auth print-access-token", {
       encoding: "utf-8",
-      timeout: 10000, // 10 second timeout
-      stdio: ["pipe", "pipe", "pipe"], // Capture stderr
+      timeout: 10000,
+      stdio: ["pipe", "pipe", "pipe"],
     }).trim();
 
     if (!token || token.includes("ERROR")) {
@@ -202,7 +233,6 @@ async function getAccessToken(): Promise<string> {
       error instanceof Error ? error.message : "Unknown error";
     console.error("Failed to get access token from gcloud:", errorMessage);
 
-    // Provide helpful error message
     throw new Error(
       `Unable to authenticate with Google Cloud. Please run 'gcloud auth login' to refresh your credentials, or set the GOOGLE_ACCESS_TOKEN environment variable.`
     );
@@ -398,6 +428,7 @@ export async function searchAndAnswer(options: {
 export async function* streamAnswer(options: {
   query: string;
   sessionId?: string;
+  userPseudoId?: string;
 }): AsyncGenerator<{
   type: "chunk" | "metadata" | "done";
   content?: string;
@@ -406,7 +437,7 @@ export async function* streamAnswer(options: {
   relatedQuestions?: string[];
   references?: Array<{ title?: string; uri?: string; content?: string }>;
 }> {
-  const { query, sessionId } = options;
+  const { query, sessionId, userPseudoId } = options;
 
   const accessToken = await getAccessToken();
 
@@ -415,7 +446,7 @@ export async function* streamAnswer(options: {
     ? `projects/${PROJECT_ID}/locations/${LOCATION}/collections/${COLLECTION}/engines/${ENGINE_ID}/sessions/${sessionId}`
     : `projects/${PROJECT_ID}/locations/${LOCATION}/collections/${COLLECTION}/engines/${ENGINE_ID}/sessions/-`;
 
-  const requestBody = {
+  const requestBody: Record<string, unknown> = {
     query: {
       text: query,
     },
@@ -428,6 +459,11 @@ export async function* streamAnswer(options: {
       includeCitations: true,
     },
   };
+
+  // Add userPseudoId if provided (for tracking sessions by user)
+  if (userPseudoId) {
+    requestBody.userPseudoId = userPseudoId;
+  }
 
   // Use the streamAnswer endpoint for true streaming
   const response = await fetch(`${BASE_URL}:streamAnswer`, {
@@ -639,4 +675,241 @@ export async function* streamAnswer(options: {
   } catch (error) {
     throw error;
   }
+}
+
+// ============================================================================
+// Session Management Functions for Chat History
+// ============================================================================
+
+export interface VertexSession {
+  name?: string;
+  displayName?: string;
+  state?: string;
+  userPseudoId?: string;
+  turns?: Array<{
+    query?: { text?: string; queryId?: string };
+    answer?: string;
+    answerText?: string; // Fetched answer content (when answer is a resource path)
+  }>;
+  startTime?: string;
+  endTime?: string;
+  isPinned?: boolean;
+}
+
+export interface ListSessionsOptions {
+  userPseudoId?: string;
+  pageSize?: number;
+  pageToken?: string;
+  orderBy?: string;
+  filter?: string;
+}
+
+export interface ListSessionsResult {
+  sessions: VertexSession[];
+  nextPageToken?: string;
+}
+
+/**
+ * List all sessions, optionally filtered by userPseudoId
+ * Sessions contain conversation history (turns) for chat history feature
+ */
+export async function listSessions(
+  options: ListSessionsOptions = {}
+): Promise<ListSessionsResult> {
+  const {
+    userPseudoId,
+    pageSize = 20,
+    pageToken,
+    orderBy = "update_time desc",
+    filter,
+  } = options;
+
+  const accessToken = await getAccessToken();
+
+  // Build query parameters
+  const params = new URLSearchParams();
+  params.set("pageSize", pageSize.toString());
+
+  if (pageToken) {
+    params.set("pageToken", pageToken);
+  }
+
+  if (orderBy) {
+    params.set("orderBy", orderBy);
+  }
+
+  // Build filter - can filter by userPseudoId
+  let filterStr = filter || "";
+  if (userPseudoId) {
+    const userFilter = `user_pseudo_id = "${userPseudoId}"`;
+    filterStr = filterStr ? `${filterStr} AND ${userFilter}` : userFilter;
+  }
+
+  if (filterStr) {
+    params.set("filter", filterStr);
+  }
+
+  const url = `${SESSIONS_BASE_URL}?${params.toString()}`;
+
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("Vertex AI list sessions error:", errorText);
+    throw new Error(
+      `Vertex AI list sessions failed: ${response.status} ${errorText}`
+    );
+  }
+
+  const data = await response.json();
+
+  // Transform sessions to extract IDs from full names
+  const sessions: VertexSession[] = (data.sessions || []).map(
+    (session: VertexSession) => ({
+      ...session,
+      // Extract session ID from full name path
+      id: session.name?.split("/sessions/")[1],
+    })
+  );
+
+  return {
+    sessions,
+    nextPageToken: data.nextPageToken,
+  };
+}
+
+/**
+ * Get a specific session by ID with full conversation turns
+ */
+export async function getSession(sessionId: string): Promise<VertexSession> {
+  const accessToken = await getAccessToken();
+
+  const url = `${SESSIONS_BASE_URL}/${sessionId}`;
+
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("Vertex AI get session error:", errorText);
+    throw new Error(
+      `Vertex AI get session failed: ${response.status} ${errorText}`
+    );
+  }
+
+  const session = await response.json();
+
+  return {
+    ...session,
+    id: session.name?.split("/sessions/")[1],
+  };
+}
+
+/**
+ * Delete a session by ID
+ */
+export async function deleteSession(sessionId: string): Promise<void> {
+  const accessToken = await getAccessToken();
+
+  const url = `${SESSIONS_BASE_URL}/${sessionId}`;
+
+  const response = await fetch(url, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("Vertex AI delete session error:", errorText);
+    throw new Error(
+      `Vertex AI delete session failed: ${response.status} ${errorText}`
+    );
+  }
+}
+
+/**
+ * Fetch the answer content from an answer resource path
+ * The answer path looks like: projects/.../sessions/.../answers/...
+ */
+export async function getAnswerContent(answerPath: string): Promise<string> {
+  const accessToken = await getAccessToken();
+
+  // The answer path is the full resource name, we need to construct the URL
+  const url = `https://discoveryengine.googleapis.com/v1alpha/${answerPath}`;
+
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("Vertex AI get answer error:", errorText);
+    // Return a fallback message instead of throwing
+    return "[Answer content not available]";
+  }
+
+  const answer = await response.json();
+
+  // The answer object should have an answerText field
+  return answer.answerText || answer.answer || "[Answer content not available]";
+}
+
+/**
+ * Get a session with full answer content (fetches each answer)
+ */
+export async function getSessionWithAnswers(sessionId: string): Promise<
+  VertexSession & {
+    turns?: Array<{
+      query?: { text?: string; queryId?: string };
+      answer?: string;
+      answerText?: string;
+    }>;
+  }
+> {
+  const session = await getSession(sessionId);
+
+  // If there are turns with answer references, fetch the actual answer content
+  if (session.turns && session.turns.length > 0) {
+    const turnsWithAnswers = await Promise.all(
+      session.turns.map(async (turn) => {
+        // Check if answer is a resource path (starts with "projects/")
+        if (turn.answer && turn.answer.startsWith("projects/")) {
+          const answerText = await getAnswerContent(turn.answer);
+          return {
+            ...turn,
+            answerText,
+          };
+        }
+        return {
+          ...turn,
+          answerText: turn.answer,
+        };
+      })
+    );
+
+    return {
+      ...session,
+      turns: turnsWithAnswers,
+    };
+  }
+
+  return session;
 }
