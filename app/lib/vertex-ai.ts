@@ -401,6 +401,7 @@ export async function* streamAnswer(options: {
 }): AsyncGenerator<{
   type: "chunk" | "metadata" | "done";
   content?: string;
+  replace?: boolean;
   sessionId?: string | null;
   relatedQuestions?: string[];
   references?: Array<{ title?: string; uri?: string; content?: string }>;
@@ -550,7 +551,7 @@ export async function* streamAnswer(options: {
                       type: "chunk",
                       content: currentAnswerText,
                       replace: true,
-                    } as any;
+                    };
                   }
                   lastAnswerText = currentAnswerText;
                 }

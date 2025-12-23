@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
             if (chunk.type === "chunk" && chunk.content) {
               // Check if this is a "replace" chunk (complete answer that differs from streamed content)
               const chunkData: Record<string, unknown> = { content: chunk.content };
-              if ((chunk as any).replace) {
+              if (chunk.replace) {
                 chunkData.replace = true;
               }
               sendChunk(chunkData);
