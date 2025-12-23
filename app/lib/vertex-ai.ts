@@ -15,9 +15,6 @@ const COLLECTION = process.env.VERTEX_AI_COLLECTION;
 
 const BASE_URL = `https://discoveryengine.googleapis.com/v1alpha/projects/${PROJECT_ID}/locations/${LOCATION}/collections/${COLLECTION}/engines/${ENGINE_ID}/servingConfigs/default_search`;
 
-// Base URL for session operations (without servingConfigs)
-const SESSIONS_BASE_URL = `https://discoveryengine.googleapis.com/v1alpha/projects/${PROJECT_ID}/locations/${LOCATION}/collections/${COLLECTION}/engines/${ENGINE_ID}/sessions`;
-
 /**
  * Clean the answer text by removing any embedded JSON metadata
  * Sometimes the Vertex AI response includes metadata as part of the text
@@ -153,7 +150,6 @@ export interface VertexAnswerResponse {
   session?: {
     name?: string;
     state?: string;
-    userPseudoId?: string;
     turns?: Array<{
       query?: { text?: string; queryId?: string };
       answer?: string;
@@ -428,7 +424,6 @@ export async function searchAndAnswer(options: {
 export async function* streamAnswer(options: {
   query: string;
   sessionId?: string;
-  userPseudoId?: string;
 }): AsyncGenerator<{
   type: "chunk" | "metadata" | "done";
   content?: string;
@@ -437,7 +432,7 @@ export async function* streamAnswer(options: {
   relatedQuestions?: string[];
   references?: Array<{ title?: string; uri?: string; content?: string }>;
 }> {
-  const { query, sessionId, userPseudoId } = options;
+  const { query, sessionId } = options;
 
   const accessToken = await getAccessToken();
 
@@ -459,11 +454,6 @@ export async function* streamAnswer(options: {
       includeCitations: true,
     },
   };
-
-  // Add userPseudoId if provided (for tracking sessions by user)
-  if (userPseudoId) {
-    requestBody.userPseudoId = userPseudoId;
-  }
 
   // Use the streamAnswer endpoint for true streaming
   const response = await fetch(`${BASE_URL}:streamAnswer`, {
