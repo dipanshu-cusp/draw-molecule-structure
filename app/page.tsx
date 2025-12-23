@@ -7,7 +7,9 @@ import SearchBar from "./components/chat/SearchBar";
 import ChatContainer from "./components/chat/ChatContainer";
 import KetcherModal from "./components/chat/KetcherModal";
 import SourcesSidebar from "./components/chat/SourcesSidebar";
+import ChatHistorySidebar from "./components/chat/ChatHistorySidebar";
 import { useChat } from "./hooks/useChat";
+import { useChatHistory } from "./hooks/useChatHistory";
 import { Message } from "./types/chat";
 
 type Reference = NonNullable<Message["metadata"]>["references"];
@@ -15,14 +17,33 @@ type Reference = NonNullable<Message["metadata"]>["references"];
 export default function Home() {
   const [isKetcherOpen, setIsKetcherOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [loadingSessionId, setLoadingSessionId] = useState<string | null>(null);
   const [sidebarReferences, setSidebarReferences] = useState<Reference>([]);
   const [moleculeData, setMoleculeData] = useState<
     { smiles?: string } | undefined
   >();
 
-  const { messages, isLoading, sendMessage, clearMessages } = useChat({
+  // Chat history hook
+  const {
+    sessions,
+    isLoading: isLoadingHistory,
+    hasMore,
+    userPseudoId,
+    loadMore,
+    getSession,
+    deleteSession,
+    refresh: refreshHistory,
+  } = useChatHistory();
+
+  // Chat hook with userPseudoId for session tracking
+  const { messages, isLoading, sessionId, sendMessage, clearMessages, loadSession } = useChat({
     apiEndpoint: "/api/chat",
     onError: (error) => console.error("Chat error:", error),
+    onSessionCreated: () => {
+      // Refresh history when a new session is created
+      refreshHistory();
+    },
+    userPseudoId,
   });
 
   const hasConversation = messages.length > 0;
@@ -52,7 +73,36 @@ export default function Home() {
   const handleNewChat = useCallback(() => {
     clearMessages();
     setMoleculeData(undefined);
-  }, [clearMessages]);
+    // Refresh history to show the session we just had (if any)
+    refreshHistory();
+  }, [clearMessages, refreshHistory]);
+
+  const handleSelectSession = useCallback(
+    async (selectedSessionId: string) => {
+      setLoadingSessionId(selectedSessionId);
+      try {
+        const sessionData = await getSession(selectedSessionId);
+        if (sessionData) {
+          loadSession(selectedSessionId, sessionData.messages);
+        }
+      } finally {
+        setLoadingSessionId(null);
+      }
+    },
+    [getSession, loadSession]
+  );
+
+  const handleDeleteSession = useCallback(
+    async (sessionIdToDelete: string) => {
+      const confirmed = window.confirm(
+        "Are you sure you want to delete this chat?"
+      );
+      if (confirmed) {
+        await deleteSession(sessionIdToDelete);
+      }
+    },
+    [deleteSession]
+  );
 
   const handleRelatedQuestionClick = useCallback(
     (question: string) => {
@@ -74,44 +124,59 @@ export default function Home() {
 
   return (
     <div
-      className="flex min-h-screen flex-col bg-gradient-to-b from-gray-50 
+      className="min-h-screen bg-gradient-to-b from-gray-50 
     to-gray-100 dark:from-gray-950 dark:to-gray-900"
     >
-      {/* Header - only shows in chat mode */}
-      <AnimatePresence>
-        {hasConversation && (
-          <motion.header
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="sticky top-0 z-40 border-b border-gray-200 dark:border-gray-800 
-            bg-white/80 dark:bg-gray-900/80 backdrop-blur-md px-4 md:px-6 py-3"
-          >
-            <div className="max-w-3xl mx-auto flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div
-                  className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 
-                to-purple-600 flex items-center justify-center"
-                >
-                  <FlaskConical className="w-4 h-4 text-white" />
+      {/* Chat History Sidebar - Always visible, collapsible, fixed */}
+      <ChatHistorySidebar
+        sessions={sessions}
+        isLoading={isLoadingHistory}
+        loadingSessionId={loadingSessionId}
+        currentSessionId={sessionId}
+        onSelectSession={handleSelectSession}
+        onDeleteSession={handleDeleteSession}
+        onNewChat={handleNewChat}
+        onLoadMore={loadMore}
+        hasMore={hasMore}
+      />
+
+      {/* Main Content Area - offset for sidebar */}
+      <div className="flex flex-col min-h-screen md:ml-16 transition-[margin] duration-300">
+        {/* Header - only shows in chat mode */}
+        <AnimatePresence>
+          {hasConversation && (
+            <motion.header
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="sticky top-0 z-40 border-b border-gray-200 dark:border-gray-800 
+              bg-white/80 dark:bg-gray-900/80 backdrop-blur-md px-4 md:px-6 py-3"
+            >
+              <div className="max-w-3xl mx-auto flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div
+                    className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 
+                  to-purple-600 flex items-center justify-center"
+                  >
+                    <FlaskConical className="w-4 h-4 text-white" />
+                  </div>
+                  <span className="font-semibold text-gray-900 dark:text-white">
+                    Molecule Search
+                  </span>
                 </div>
-                <span className="font-semibold text-gray-900 dark:text-white">
-                  Molecule Search
-                </span>
+                <button
+                  onClick={handleNewChat}
+                  className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 
+                  hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800 
+                  rounded-lg transition-colors"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  New Chat
+                </button>
               </div>
-              <button
-                onClick={handleNewChat}
-                className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 
-                hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800 
-                rounded-lg transition-colors"
-              >
-                <RotateCcw className="w-4 h-4" />
-                New Chat
-              </button>
-            </div>
-          </motion.header>
-        )}
-      </AnimatePresence>
+            </motion.header>
+          )}
+        </AnimatePresence>
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col">
@@ -245,6 +310,7 @@ export default function Home() {
           )}
         </AnimatePresence>
       </main>
+      </div>
 
       {/* Ketcher Modal */}
       <KetcherModal

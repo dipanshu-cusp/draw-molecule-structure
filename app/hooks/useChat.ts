@@ -6,6 +6,8 @@ import { Message, MoleculeData, ChatState, MessageMetadata } from "../types/chat
 interface UseChatOptions {
   apiEndpoint?: string;
   onError?: (error: Error) => void;
+  onSessionCreated?: (sessionId: string) => void;
+  userPseudoId?: string;
 }
 
 interface SendMessageParams {
@@ -14,7 +16,7 @@ interface SendMessageParams {
 }
 
 export function useChat(options: UseChatOptions = {}) {
-  const { apiEndpoint = "/api/chat", onError } = options;
+  const { apiEndpoint = "/api/chat", onError, onSessionCreated, userPseudoId } = options;
 
   const [state, setState] = useState<ChatState>({
     messages: [],
@@ -28,6 +30,16 @@ export function useChat(options: UseChatOptions = {}) {
   const generateId = () => {
     return `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   };
+
+  // Load messages from an existing session
+  const loadSession = useCallback((sessionId: string, messages: Message[]) => {
+    setState({
+      messages,
+      isLoading: false,
+      error: null,
+      sessionId,
+    });
+  }, []);
 
   const sendMessage = useCallback(
     async ({ content, moleculeData }: SendMessageParams) => {
@@ -79,6 +91,7 @@ export function useChat(options: UseChatOptions = {}) {
             })),
             moleculeData,
             sessionId: state.sessionId,
+            userPseudoId,
           }),
           signal: abortControllerRef.current.signal,
         });
@@ -134,12 +147,23 @@ export function useChat(options: UseChatOptions = {}) {
                     references: parsed.references,
                   };
 
-                  // Update session ID in state
+                  // Update session ID in state and notify if new session created
                   if (parsed.sessionId) {
-                    setState((prev) => ({
-                      ...prev,
-                      sessionId: parsed.sessionId,
-                    }));
+                    setState((prev) => {
+                      // Check if this is a new session (no previous sessionId)
+                      const isNewSession = !prev.sessionId && parsed.sessionId;
+                      
+                      // Call the callback after state update if it's a new session
+                      if (isNewSession && onSessionCreated) {
+                        // Use setTimeout to ensure state is updated first
+                        setTimeout(() => onSessionCreated(parsed.sessionId), 100);
+                      }
+                      
+                      return {
+                        ...prev,
+                        sessionId: parsed.sessionId,
+                      };
+                    });
                   }
 
                   // Update the assistant message with metadata
@@ -326,5 +350,6 @@ export function useChat(options: UseChatOptions = {}) {
     sendMessage,
     clearMessages,
     cancelRequest,
+    loadSession,
   };
 }

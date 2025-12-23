@@ -5,3 +5,4 @@ export { default as KetcherModal } from "./KetcherModal";
 export { default as SourceAndReferences } from "./references";
 export { default as Suggestions } from "./suggestions";
 export { default as SourcesSidebar } from "./SourcesSidebar";
+export { default as ChatHistorySidebar } from "./ChatHistorySidebar";

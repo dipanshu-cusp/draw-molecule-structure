@@ -36,3 +36,28 @@ export interface StreamingOptions {
   onComplete?: (fullMessage: string) => void;
   onError?: (error: Error) => void;
 }
+
+// Session types for chat history
+export interface SessionTurn {
+  query?: {
+    text?: string;
+    queryId?: string;
+  };
+  answer?: string;
+}
+
+export interface ChatSession {
+  id: string;
+  name: string;
+  displayName?: string;
+  userPseudoId?: string;
+  startTime?: string;
+  endTime?: string;
+  isPinned?: boolean;
+  turns?: SessionTurn[];
+}
+
+export interface ListSessionsResponse {
+  sessions: ChatSession[];
+  nextPageToken?: string;
+}

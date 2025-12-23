@@ -10,7 +10,7 @@ const USE_VERTEX_AI = process.env.USE_VERTEX_AI === "true";
  */
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { messages, moleculeData, sessionId } = body;
+  const { messages, moleculeData, sessionId, userPseudoId } = body;
 
   // Get the last user message
   const lastMessage = messages[messages.length - 1];
@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
       try {
         if (USE_VERTEX_AI) {
           // Use Vertex AI Discovery Engine
-          const generator = streamAnswer({ query, sessionId });
+          const generator = streamAnswer({ query, sessionId, userPseudoId });
 
           for await (const chunk of generator) {
             if (chunk.type === "chunk" && chunk.content) {
