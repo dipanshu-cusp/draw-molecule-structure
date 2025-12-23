@@ -6,10 +6,16 @@ import { FlaskConical, RotateCcw } from "lucide-react";
 import SearchBar from "./components/chat/SearchBar";
 import ChatContainer from "./components/chat/ChatContainer";
 import KetcherModal from "./components/chat/KetcherModal";
+import SourcesSidebar from "./components/chat/SourcesSidebar";
 import { useChat } from "./hooks/useChat";
+import { Message } from "./types/chat";
+
+type Reference = NonNullable<Message["metadata"]>["references"];
 
 export default function Home() {
   const [isKetcherOpen, setIsKetcherOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [sidebarReferences, setSidebarReferences] = useState<Reference>([]);
   const [moleculeData, setMoleculeData] = useState<
     { smiles?: string } | undefined
   >();
@@ -47,6 +53,24 @@ export default function Home() {
     clearMessages();
     setMoleculeData(undefined);
   }, [clearMessages]);
+
+  const handleRelatedQuestionClick = useCallback(
+    (question: string) => {
+      sendMessage({
+        content: question,
+      });
+    },
+    [sendMessage]
+  );
+
+  const handleShowSources = useCallback((references: Reference) => {
+    setSidebarReferences(references || []);
+    setIsSidebarOpen(true);
+  }, []);
+
+  const handleCloseSidebar = useCallback(() => {
+    setIsSidebarOpen(false);
+  }, []);
 
   return (
     <div
@@ -194,7 +218,12 @@ export default function Home() {
               className="flex-1 flex flex-col min-h-0"
             >
               {/* Messages */}
-              <ChatContainer messages={messages} isLoading={isLoading} />
+              <ChatContainer 
+                messages={messages} 
+                isLoading={isLoading} 
+                onRelatedQuestionClick={handleRelatedQuestionClick}
+                onShowSources={handleShowSources}
+              />
 
               {/* Input Area */}
               <div
@@ -223,6 +252,13 @@ export default function Home() {
         onClose={() => setIsKetcherOpen(false)}
         onConfirm={handleMoleculeConfirm}
         initialSmiles={moleculeData?.smiles}
+      />
+
+      {/* Sources Sidebar */}
+      <SourcesSidebar
+        isOpen={isSidebarOpen}
+        onClose={handleCloseSidebar}
+        references={sidebarReferences || []}
       />
     </div>
   );

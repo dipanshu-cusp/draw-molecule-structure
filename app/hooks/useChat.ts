@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import { Message, MoleculeData, ChatState } from "../types/chat";
+import { Message, MoleculeData, ChatState, MessageMetadata } from "../types/chat";
 
 interface UseChatOptions {
   apiEndpoint?: string;
@@ -20,6 +20,7 @@ export function useChat(options: UseChatOptions = {}) {
     messages: [],
     isLoading: false,
     error: null,
+    sessionId: null,
   });
 
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -77,6 +78,7 @@ export function useChat(options: UseChatOptions = {}) {
               moleculeData: m.moleculeData,
             })),
             moleculeData,
+            sessionId: state.sessionId,
           }),
           signal: abortControllerRef.current.signal,
         });
@@ -93,6 +95,8 @@ export function useChat(options: UseChatOptions = {}) {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let accumulatedContent = "";
+        let metadata: MessageMetadata = {};
+        let buffer = ""; // Buffer for incomplete SSE messages
 
         while (true) {
           const { done, value } = await reader.read();
@@ -101,8 +105,14 @@ export function useChat(options: UseChatOptions = {}) {
             break;
           }
 
-          const chunk = decoder.decode(value, { stream: true });
-          const lines = chunk.split("\n");
+          // Append new data to buffer
+          buffer += decoder.decode(value, { stream: true });
+          
+          // Process complete lines from buffer
+          const lines = buffer.split("\n");
+          
+          // Keep the last incomplete line in buffer
+          buffer = lines.pop() || "";
 
           for (const line of lines) {
             if (line.startsWith("data: ")) {
@@ -114,11 +124,68 @@ export function useChat(options: UseChatOptions = {}) {
 
               try {
                 const parsed = JSON.parse(data);
+
+                // Handle metadata updates (session, references, etc.)
+                // Check for metadata type FIRST before checking for content
+                if (parsed.type === "metadata" || (parsed.sessionId && parsed.relatedQuestions)) {
+                  metadata = {
+                    sessionId: parsed.sessionId,
+                    relatedQuestions: parsed.relatedQuestions,
+                    references: parsed.references,
+                  };
+
+                  // Update session ID in state
+                  if (parsed.sessionId) {
+                    setState((prev) => ({
+                      ...prev,
+                      sessionId: parsed.sessionId,
+                    }));
+                  }
+
+                  // Update the assistant message with metadata
+                  setState((prev) => ({
+                    ...prev,
+                    messages: prev.messages.map((m) =>
+                      m.id === assistantMessageId
+                        ? { ...m, metadata }
+                        : m
+                    ),
+                  }));
+                  continue;
+                }
+
+                // Handle error from Vertex AI
+                if (parsed.error) {
+                  accumulatedContent = parsed.content || "An error occurred";
+                  setState((prev) => ({
+                    ...prev,
+                    messages: prev.messages.map((m) =>
+                      m.id === assistantMessageId
+                        ? { ...m, content: accumulatedContent }
+                        : m
+                    ),
+                    error: accumulatedContent,
+                  }));
+                  continue;
+                }
+
+                // Only process content if this is a content chunk (not metadata)
+                // Skip if the parsed object looks like metadata
+                if (parsed.relatedQuestions || parsed.references) {
+                  continue;
+                }
+
                 const content =
                   parsed.content || parsed.text || parsed.delta?.content || "";
 
                 if (content) {
-                  accumulatedContent += content;
+                  // Check if this is a "replace" chunk - means the complete answer
+                  // is different from what we've been streaming
+                  if (parsed.replace) {
+                    accumulatedContent = content;
+                  } else {
+                    accumulatedContent += content;
+                  }
 
                   // Update the assistant message with accumulated content
                   setState((prev) => ({
@@ -131,9 +198,21 @@ export function useChat(options: UseChatOptions = {}) {
                   }));
                 }
               } catch {
-                // If it's not JSON, treat as plain text
-                if (data.trim()) {
-                  accumulatedContent += data;
+                // If it's not valid JSON, check if it looks like metadata JSON (partial)
+                // and skip it to avoid appending raw JSON to the message
+                const trimmedData = data.trim();
+                if (
+                  trimmedData.startsWith('{"type":"metadata"') ||
+                  trimmedData.startsWith('{"sessionId"') ||
+                  trimmedData.includes('"relatedQuestions"')
+                ) {
+                  // This looks like metadata JSON, skip it
+                  continue;
+                }
+                
+                // Otherwise treat as plain text content
+                if (trimmedData) {
+                  accumulatedContent += trimmedData;
                   setState((prev) => ({
                     ...prev,
                     messages: prev.messages.map((m) =>
@@ -144,6 +223,29 @@ export function useChat(options: UseChatOptions = {}) {
                   }));
                 }
               }
+            }
+          }
+        }
+
+        // Process any remaining data in buffer
+        if (buffer.trim() && buffer.startsWith("data: ")) {
+          const data = buffer.slice(6).trim();
+          if (data && data !== "[DONE]") {
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed.content && !parsed.relatedQuestions && !parsed.references) {
+                accumulatedContent += parsed.content;
+                setState((prev) => ({
+                  ...prev,
+                  messages: prev.messages.map((m) =>
+                    m.id === assistantMessageId
+                      ? { ...m, content: accumulatedContent }
+                      : m
+                  ),
+                }));
+              }
+            } catch {
+              // Ignore incomplete JSON in buffer
             }
           }
         }
@@ -187,17 +289,19 @@ export function useChat(options: UseChatOptions = {}) {
         }
       }
     },
-    [apiEndpoint, state.messages, onError]
+    [apiEndpoint, state.messages, state.sessionId, onError]
   );
 
   const clearMessages = useCallback(() => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
+    // Reset messages and session ID to start fresh
     setState({
       messages: [],
       isLoading: false,
       error: null,
+      sessionId: null,
     });
   }, []);
 
@@ -218,6 +322,7 @@ export function useChat(options: UseChatOptions = {}) {
     messages: state.messages,
     isLoading: state.isLoading,
     error: state.error,
+    sessionId: state.sessionId,
     sendMessage,
     clearMessages,
     cancelRequest,

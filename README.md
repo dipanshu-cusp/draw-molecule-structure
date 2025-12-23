@@ -2,23 +2,74 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
+
+- Node.js 18+ and pnpm
+- Google Cloud SDK (gcloud) for Vertex AI integration
+
+### Environment Setup
+
+1. Copy the example environment file:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+cp .env.example .env.local
+```
+
+2. Configure your Vertex AI settings in `.env.local`:
+
+```bash
+# Set to true to enable Vertex AI (false uses mock responses for development)
+USE_VERTEX_AI=true
+
+# Your Google Cloud Project configuration
+VERTEX_AI_PROJECT_ID=your-project-id
+VERTEX_AI_ENGINE_ID=your-engine-id
+VERTEX_AI_LOCATION=global
+VERTEX_AI_COLLECTION=default_collection
+```
+
+3. Authenticate with Google Cloud:
+
+```bash
+gcloud auth login
+gcloud config set project YOUR_PROJECT_ID
+```
+
+### Running the Development Server
+
+```bash
+pnpm install
 pnpm dev
-# or
-bun dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Vertex AI Integration
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+This project integrates with Google Cloud's Vertex AI Discovery Engine for intelligent search and answer generation. The integration supports:
+
+- **Search with generated answers**: Get AI-generated responses with citations
+- **Session management**: Maintain context across follow-up questions
+- **Related questions**: Receive suggested follow-up questions
+
+### Configuration Options
+
+| Environment Variable | Description | Default |
+|---------------------|-------------|---------|
+| `USE_VERTEX_AI` | Enable Vertex AI (`true`) or mock mode (`false`) | `false` |
+| `VERTEX_AI_PROJECT_ID` | Google Cloud Project ID | - |
+| `VERTEX_AI_ENGINE_ID` | Discovery Engine ID | - |
+| `VERTEX_AI_LOCATION` | Engine location | `global` |
+| `VERTEX_AI_COLLECTION` | Collection name | `default_collection` |
+| `GOOGLE_ACCESS_TOKEN` | Access token (optional, uses gcloud CLI if not set) | - |
+
+### Authentication
+
+For local development, the app uses `gcloud auth print-access-token` to get credentials automatically.
+
+For production deployments, you can either:
+1. Set `GOOGLE_ACCESS_TOKEN` environment variable
+2. Use a service account with appropriate IAM permissions
 
 ## Learn More
 

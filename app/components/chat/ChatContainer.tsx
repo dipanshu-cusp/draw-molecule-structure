@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Loader2 } from "lucide-react";
-import { Message } from "../../types/chat";
+import { Message, MessageMetadata } from "../../types/chat";
 import ChatMessage from "./ChatMessage";
 import { cn } from "../../lib/utils";
 
@@ -11,12 +11,16 @@ interface ChatContainerProps {
   messages: Message[];
   isLoading?: boolean;
   className?: string;
+  onRelatedQuestionClick?: (question: string) => void;
+  onShowSources?: (references: MessageMetadata["references"]) => void;
 }
 
 export default function ChatContainer({
   messages,
   isLoading,
   className,
+  onRelatedQuestionClick,
+  onShowSources,
 }: ChatContainerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -39,6 +43,8 @@ export default function ChatContainer({
             key={message.id}
             message={message}
             isLatest={index === messages.length - 1}
+            onRelatedQuestionClick={onRelatedQuestionClick}
+            onShowSources={onShowSources}
           />
         ))}
 

@@ -5,6 +5,17 @@ export interface Message {
   timestamp: Date;
   moleculeData?: MoleculeData;
   isStreaming?: boolean;
+  metadata?: MessageMetadata;
+}
+
+export interface MessageMetadata {
+  sessionId?: string;
+  relatedQuestions?: string[];
+  references?: Array<{
+    title?: string;
+    uri?: string;
+    content?: string;
+  }>;
 }
 
 export interface MoleculeData {
@@ -17,6 +28,7 @@ export interface ChatState {
   messages: Message[];
   isLoading: boolean;
   error: string | null;
+  sessionId: string | null;
 }
 
 export interface StreamingOptions {
