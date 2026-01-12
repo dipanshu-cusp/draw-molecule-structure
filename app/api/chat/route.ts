@@ -1,11 +1,14 @@
 import { NextRequest } from "next/server";
-import { streamAnswer } from "@/app/lib/vertex-ai";
 
-// Environment variable to toggle between mock and real Vertex AI
-const USE_VERTEX_AI = process.env.USE_VERTEX_AI === "true";
+// Backend server URL - defaults to localhost for development
+const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
+
+// Environment variable to toggle between mock and real backend
+const USE_MOCK = process.env.USE_MOCK === "true";
 
 /**
- * Chat API endpoint that integrates with Vertex AI Discovery Engine
+ * Chat API endpoint that proxies requests to the FastAPI backend
+ * The backend handles Vertex AI Discovery Engine integration
  * Supports SSE streaming responses
  */
 export async function POST(request: NextRequest) {
@@ -17,12 +20,6 @@ export async function POST(request: NextRequest) {
   const userContent = lastMessage?.content || "";
   const smiles = moleculeData?.smiles || lastMessage?.moleculeData?.smiles;
 
-  // Build the query with molecule context if available
-  let query = userContent;
-  if (smiles) {
-    query = `${userContent}\n\nContext: The user has provided a molecule with SMILES notation: ${smiles}`;
-  }
-
   // Create a ReadableStream for SSE
   const stream = new ReadableStream({
     async start(controller) {
@@ -30,40 +27,79 @@ export async function POST(request: NextRequest) {
 
       // Helper function to send SSE data
       const sendChunk = (data: Record<string, unknown>) => {
-        controller.enqueue(
-          encoder.encode(`data: ${JSON.stringify(data)}\n\n`)
-        );
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
       };
 
       try {
-        if (USE_VERTEX_AI) {
-          // Use Vertex AI Discovery Engine
-          const generator = streamAnswer({ query, sessionId });
+        if (!USE_MOCK) {
+          // Call the FastAPI backend which handles Vertex AI
+          const backendResponse = await fetch(`${BACKEND_URL}/chat`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              prompt: userContent,
+              smiles: smiles || null,
+              session_id: sessionId || null,
+            }),
+          });
 
-          for await (const chunk of generator) {
-            if (chunk.type === "chunk" && chunk.content) {
-              // Check if this is a "replace" chunk (complete answer that differs from streamed content)
-              const chunkData: Record<string, unknown> = { content: chunk.content };
-              if (chunk.replace) {
-                chunkData.replace = true;
+          if (!backendResponse.ok) {
+            const errorText = await backendResponse.text();
+            throw new Error(`Backend error: ${backendResponse.status} ${errorText}`);
+          }
+
+          if (!backendResponse.body) {
+            throw new Error("No response body from backend");
+          }
+
+          // Stream the response from the backend to the client
+          const reader = backendResponse.body.getReader();
+          const decoder = new TextDecoder();
+
+          let buffer = "";
+
+          while (true) {
+            const { done, value } = await reader.read();
+
+            if (done) {
+              break;
+            }
+
+            buffer += decoder.decode(value, { stream: true });
+
+            // Process complete SSE messages from the buffer
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || ""; // Keep incomplete line in buffer
+
+            for (const line of lines) {
+              if (line.startsWith("data: ")) {
+                const data = line.slice(6); // Remove "data: " prefix
+                
+                if (data === "[DONE]") {
+                  controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+                } else {
+                  // Forward the data as-is (already JSON formatted)
+                  controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+                }
               }
-              sendChunk(chunkData);
-            } else if (chunk.type === "metadata") {
-              // Send session and metadata info
-              sendChunk({
-                type: "metadata",
-                sessionId: chunk.sessionId,
-                relatedQuestions: chunk.relatedQuestions,
-                references: chunk.references,
-              });
-            } else if (chunk.type === "done") {
+            }
+          }
+
+          // Process any remaining data in the buffer
+          if (buffer.startsWith("data: ")) {
+            const data = buffer.slice(6);
+            if (data === "[DONE]") {
               controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+            } else if (data.trim()) {
+              controller.enqueue(encoder.encode(`data: ${data}\n\n`));
             }
           }
         } else {
           // Mock response for development/testing
           const response = generateMockResponse(userContent, smiles);
-          
+
           // Stream the response word by word
           const words = response.split(" ");
           for (let i = 0; i < words.length; i++) {
@@ -81,7 +117,9 @@ export async function POST(request: NextRequest) {
       } catch (error) {
         console.error("Chat API error:", error);
         const errorMessage =
-          error instanceof Error ? error.message : "An unexpected error occurred";
+          error instanceof Error
+            ? error.message
+            : "An unexpected error occurred";
         sendChunk({
           error: true,
           content: `I encountered an error while processing your request: ${errorMessage}. Please try again.`,
