@@ -1,10 +1,44 @@
 import { NextRequest } from "next/server";
+import { GoogleAuth } from "google-auth-library";
 
 // Backend server URL - defaults to localhost for development
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
 
 // Environment variable to toggle between mock and real backend
 const USE_MOCK = process.env.USE_MOCK === "true";
+
+// Google Auth client for Cloud Run service-to-service authentication
+// This is used to get ID tokens for calling internal Cloud Run services
+const auth = new GoogleAuth();
+
+/**
+ * Get an ID token for authenticating with the internal Cloud Run backend.
+ * This is required when the backend is deployed with internal networking.
+ * The frontend service account must have Cloud Run Invoker permission on the backend.
+ *
+ * @returns The ID token to use in the Authorization header, or null if not in Cloud Run
+ */
+async function getBackendAuthToken(): Promise<string | null> {
+  // Skip auth for local development
+  if (!process.env.K_SERVICE) {
+    return null;
+  }
+
+  try {
+    // Get an ID token for the backend service URL
+    // The audience must be the backend's Cloud Run URL
+    const client = await auth.getIdTokenClient(BACKEND_URL);
+    const headers = await client.getRequestHeaders();
+    // getRequestHeaders() returns { Authorization: "Bearer <token>" } as a plain object
+    const authHeader = headers as { Authorization?: string };
+    return authHeader.Authorization || null;
+  } catch (error) {
+    console.error("Failed to get backend auth token:", error);
+    throw new Error(
+      "Unable to authenticate with backend service. Please check service account permissions."
+    );
+  }
+}
 
 /**
  * Chat API endpoint that proxies requests to the FastAPI backend
@@ -32,12 +66,21 @@ export async function POST(request: NextRequest) {
 
       try {
         if (!USE_MOCK) {
+          // Get authentication token for Cloud Run service-to-service calls
+          const authToken = await getBackendAuthToken();
+
+          // Build headers with optional auth token
+          const headers: Record<string, string> = {
+            "Content-Type": "application/json",
+          };
+          if (authToken) {
+            headers["Authorization"] = authToken;
+          }
+
           // Call the FastAPI backend which handles Vertex AI
           const backendResponse = await fetch(`${BACKEND_URL}/chat`, {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
+            headers,
             body: JSON.stringify({
               prompt: userContent,
               smiles: smiles || null,
