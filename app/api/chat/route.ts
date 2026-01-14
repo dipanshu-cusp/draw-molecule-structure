@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { GoogleAuth } from "google-auth-library";
+import { GoogleAuth, IdTokenClient } from "google-auth-library";
 
 // Backend server URL - defaults to localhost for development
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
@@ -11,12 +11,29 @@ const USE_MOCK = process.env.USE_MOCK === "true";
 // This is used to get ID tokens for calling internal Cloud Run services
 const auth = new GoogleAuth();
 
+// Cache the ID token client to avoid repeated initialization
+let cachedIdTokenClient: IdTokenClient | null = null;
+
 // Debug logging helper
 function debugLog(context: string, message: string, data?: unknown) {
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] [CHAT_API] [${context}] ${message}`);
   if (data !== undefined) {
     console.log(`[${timestamp}] [CHAT_API] [${context}] Data:`, JSON.stringify(data, null, 2));
+  }
+}
+
+/**
+ * Extract the origin (base URL without path) from a URL string.
+ * The audience for ID tokens must be the base URL of the service.
+ */
+function getAudienceFromUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    // If parsing fails, return as-is
+    return url;
   }
 }
 
@@ -30,48 +47,94 @@ function debugLog(context: string, message: string, data?: unknown) {
 async function getBackendAuthToken(): Promise<string | null> {
   debugLog("AUTH", "Getting backend auth token...");
   debugLog("AUTH", `K_SERVICE env: ${process.env.K_SERVICE || "not set"}`);
+  debugLog("AUTH", `K_REVISION env: ${process.env.K_REVISION || "not set"}`);
   debugLog("AUTH", `BACKEND_URL: ${BACKEND_URL}`);
   
-  // Skip auth for local development
-  if (!process.env.K_SERVICE) {
-    debugLog("AUTH", "Skipping auth - not running in Cloud Run (K_SERVICE not set)");
+  // In Cloud Run, K_SERVICE is always set
+  // But we should try to get auth token regardless if BACKEND_URL looks like a Cloud Run URL
+  const isCloudRunEnv = !!process.env.K_SERVICE;
+  const isCloudRunBackend = BACKEND_URL.includes(".run.app");
+  
+  debugLog("AUTH", `Is Cloud Run environment: ${isCloudRunEnv}`);
+  debugLog("AUTH", `Is Cloud Run backend URL: ${isCloudRunBackend}`);
+  
+  // Skip auth only for local development (localhost URLs)
+  if (BACKEND_URL.includes("localhost") || BACKEND_URL.includes("127.0.0.1")) {
+    debugLog("AUTH", "Skipping auth - backend is localhost");
+    return null;
+  }
+  
+  // If not in Cloud Run and not a Cloud Run backend, skip auth
+  if (!isCloudRunEnv && !isCloudRunBackend) {
+    debugLog("AUTH", "Skipping auth - not in Cloud Run and backend is not a Cloud Run URL");
     return null;
   }
 
   try {
-    debugLog("AUTH", "Requesting ID token client for audience:", BACKEND_URL);
+    // The audience must be the base URL (origin) without any path
+    const audience = getAudienceFromUrl(BACKEND_URL);
+    debugLog("AUTH", `Target audience for ID token: ${audience}`);
     
-    // Get an ID token for the backend service URL
-    // The audience must be the backend's Cloud Run URL (without path)
-    const client = await auth.getIdTokenClient(BACKEND_URL);
-    debugLog("AUTH", "ID token client obtained successfully");
-    
-    const headers = await client.getRequestHeaders();
-    debugLog("AUTH", "Request headers obtained");
-    
-    // getRequestHeaders() returns { Authorization: "Bearer <token>" } as a plain object
-    const authHeader = headers as { Authorization?: string };
-    
-    if (authHeader.Authorization) {
-      // Log only first/last few chars of token for debugging
-      const token = authHeader.Authorization;
-      const tokenPreview = token.length > 30 
-        ? `${token.substring(0, 20)}...${token.substring(token.length - 10)}`
-        : token;
-      debugLog("AUTH", `Auth token obtained: ${tokenPreview}`);
+    // Get or create the ID token client
+    if (!cachedIdTokenClient) {
+      debugLog("AUTH", "Creating new ID token client...");
+      cachedIdTokenClient = await auth.getIdTokenClient(audience);
+      debugLog("AUTH", "ID token client created successfully");
     } else {
-      debugLog("AUTH", "WARNING: No Authorization header in response");
+      debugLog("AUTH", "Using cached ID token client");
     }
     
-    return authHeader.Authorization || null;
+    // Get the ID token
+    debugLog("AUTH", "Fetching ID token...");
+    const tokenResponse = await cachedIdTokenClient.getRequestHeaders();
+    debugLog("AUTH", "Token response received", { 
+      hasHeaders: !!tokenResponse,
+      headerKeys: tokenResponse ? Object.keys(tokenResponse) : [],
+      tokenResponseType: typeof tokenResponse,
+    });
+    
+    // tokenResponse is a plain object { Authorization: "Bearer <token>" }
+    // Cast through unknown to avoid TypeScript errors
+    const authHeader = (tokenResponse as unknown as Record<string, string>)?.["Authorization"];
+    
+    if (authHeader) {
+      // Log only first/last few chars of token for debugging
+      const tokenPreview = authHeader.length > 50 
+        ? `${authHeader.substring(0, 25)}...${authHeader.substring(authHeader.length - 15)}`
+        : authHeader;
+      debugLog("AUTH", `Auth token obtained successfully: ${tokenPreview}`);
+      return authHeader;
+    } else {
+      debugLog("AUTH", "WARNING: No Authorization header in token response");
+      debugLog("AUTH", "Full token response:", tokenResponse);
+      
+      // Try alternative: get the token directly from the client
+      debugLog("AUTH", "Attempting to get token via getAccessToken...");
+      const accessTokenResponse = await cachedIdTokenClient.getAccessToken();
+      debugLog("AUTH", "Access token response:", {
+        hasToken: !!accessTokenResponse?.token,
+        tokenLength: accessTokenResponse?.token?.length
+      });
+      
+      if (accessTokenResponse?.token) {
+        const token = `Bearer ${accessTokenResponse.token}`;
+        debugLog("AUTH", "Got token via getAccessToken");
+        return token;
+      }
+      
+      return null;
+    }
   } catch (error) {
     debugLog("AUTH", "ERROR getting auth token:", {
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
+      name: error instanceof Error ? error.name : undefined,
     });
-    throw new Error(
-      "Unable to authenticate with backend service. Please check service account permissions."
-    );
+    
+    // Don't throw - let the request proceed without auth
+    // This allows better error messages from the backend
+    debugLog("AUTH", "Proceeding without auth token due to error");
+    return null;
   }
 }
 
@@ -185,9 +248,9 @@ export async function POST(request: NextRequest) {
           };
           if (authToken) {
             headers["Authorization"] = authToken;
-            debugLog("BACKEND", `[${requestId}] Auth token added to headers`);
+            debugLog("BACKEND", `[${requestId}] Auth token added to headers (length: ${authToken.length})`);
           } else {
-            debugLog("BACKEND", `[${requestId}] No auth token (local dev mode)`);
+            debugLog("BACKEND", `[${requestId}] WARNING: No auth token available - request may fail for internal services`);
           }
 
           // Construct the full URL
@@ -196,6 +259,7 @@ export async function POST(request: NextRequest) {
             url: fullUrl,
             method: "POST",
             hasAuthHeader: !!authToken,
+            authHeaderLength: authToken?.length || 0,
           });
 
           // Call the FastAPI backend which handles Vertex AI
@@ -218,6 +282,12 @@ export async function POST(request: NextRequest) {
           if (!backendResponse.ok) {
             const errorText = await backendResponse.text();
             debugLog("BACKEND", `[${requestId}] Backend error response body:`, errorText);
+            
+            // Special handling for 404 - likely auth issue with internal service
+            if (backendResponse.status === 404) {
+              debugLog("BACKEND", `[${requestId}] 404 Error - This often indicates auth issues with internal Cloud Run services`);
+              debugLog("BACKEND", `[${requestId}] Check: 1) BACKEND_URL is correct, 2) Frontend service account has Cloud Run Invoker role on backend`);
+            }
             throw new Error(`Backend error: ${backendResponse.status} ${errorText}`);
           }
 
