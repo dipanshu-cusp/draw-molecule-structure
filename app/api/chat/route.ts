@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server";
-import { GoogleAuth, IdTokenClient } from "google-auth-library";
 
 // Backend server URL - defaults to localhost for development
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
@@ -7,12 +6,9 @@ const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
 // Environment variable to toggle between mock and real backend
 const USE_MOCK = process.env.USE_MOCK === "true";
 
-// Google Auth client for Cloud Run service-to-service authentication
-// This is used to get ID tokens for calling internal Cloud Run services
-const auth = new GoogleAuth();
-
-// Cache the ID token client to avoid repeated initialization
-let cachedIdTokenClient: IdTokenClient | null = null;
+// Metadata server URL for fetching ID tokens in Cloud Run/GCE
+const METADATA_SERVER_URL = "http://metadata.google.internal/computeMetadata/v1";
+const METADATA_IDENTITY_ENDPOINT = `${METADATA_SERVER_URL}/instance/service-accounts/default/identity`;
 
 // Debug logging helper
 function debugLog(context: string, message: string, data?: unknown) {
@@ -38,104 +34,102 @@ function getAudienceFromUrl(url: string): string {
 }
 
 /**
+ * Fetch an ID token directly from the GCP metadata server.
+ * This is the most reliable method for Cloud Run service-to-service auth.
+ * 
+ * @param audience - The target service URL (the backend Cloud Run URL)
+ * @returns The ID token, or null if fetching fails
+ */
+async function fetchIdTokenFromMetadataServer(audience: string): Promise<string | null> {
+  const url = `${METADATA_IDENTITY_ENDPOINT}?audience=${encodeURIComponent(audience)}`;
+  
+  debugLog("AUTH", `Fetching ID token from metadata server`);
+  debugLog("AUTH", `Metadata URL: ${url}`);
+  
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        "Metadata-Flavor": "Google",
+      },
+    });
+    
+    debugLog("AUTH", `Metadata server response status: ${response.status}`);
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      debugLog("AUTH", `Metadata server error: ${errorText}`);
+      return null;
+    }
+    
+    // The response body IS the token (not JSON)
+    const token = await response.text();
+    
+    if (token) {
+      const tokenPreview = token.length > 50 
+        ? `${token.substring(0, 20)}...${token.substring(token.length - 10)}`
+        : token;
+      debugLog("AUTH", `ID token obtained from metadata server: ${tokenPreview}`);
+      debugLog("AUTH", `Token length: ${token.length}`);
+      return token;
+    }
+    
+    debugLog("AUTH", "Metadata server returned empty token");
+    return null;
+  } catch (error) {
+    debugLog("AUTH", "Error fetching from metadata server:", {
+      error: error instanceof Error ? error.message : String(error),
+      name: error instanceof Error ? error.name : undefined,
+    });
+    return null;
+  }
+}
+
+/**
  * Get an ID token for authenticating with the internal Cloud Run backend.
  * This is required when the backend is deployed with internal networking.
  * The frontend service account must have Cloud Run Invoker permission on the backend.
  *
- * @returns The ID token to use in the Authorization header, or null if not in Cloud Run
+ * Uses the GCP metadata server directly for reliability.
+ *
+ * @returns The full Authorization header value (Bearer <token>), or null if not applicable
  */
 async function getBackendAuthToken(): Promise<string | null> {
-  debugLog("AUTH", "Getting backend auth token...");
-  debugLog("AUTH", `K_SERVICE env: ${process.env.K_SERVICE || "not set"}`);
-  debugLog("AUTH", `K_REVISION env: ${process.env.K_REVISION || "not set"}`);
+  debugLog("AUTH", "=== Getting backend auth token ===");
+  debugLog("AUTH", `K_SERVICE: ${process.env.K_SERVICE || "not set"}`);
+  debugLog("AUTH", `K_REVISION: ${process.env.K_REVISION || "not set"}`);
   debugLog("AUTH", `BACKEND_URL: ${BACKEND_URL}`);
   
-  // In Cloud Run, K_SERVICE is always set
-  // But we should try to get auth token regardless if BACKEND_URL looks like a Cloud Run URL
-  const isCloudRunEnv = !!process.env.K_SERVICE;
-  const isCloudRunBackend = BACKEND_URL.includes(".run.app");
-  
-  debugLog("AUTH", `Is Cloud Run environment: ${isCloudRunEnv}`);
-  debugLog("AUTH", `Is Cloud Run backend URL: ${isCloudRunBackend}`);
-  
-  // Skip auth only for local development (localhost URLs)
+  // Skip auth for localhost
   if (BACKEND_URL.includes("localhost") || BACKEND_URL.includes("127.0.0.1")) {
     debugLog("AUTH", "Skipping auth - backend is localhost");
     return null;
   }
   
-  // If not in Cloud Run and not a Cloud Run backend, skip auth
-  if (!isCloudRunEnv && !isCloudRunBackend) {
-    debugLog("AUTH", "Skipping auth - not in Cloud Run and backend is not a Cloud Run URL");
+  // Check if we're in a GCP environment (Cloud Run, GCE, GKE, etc.)
+  const isGCPEnvironment = !!process.env.K_SERVICE || !!process.env.GOOGLE_CLOUD_PROJECT;
+  debugLog("AUTH", `Is GCP environment: ${isGCPEnvironment}`);
+  
+  if (!isGCPEnvironment) {
+    debugLog("AUTH", "Not in GCP environment - skipping auth");
     return null;
   }
-
-  try {
-    // The audience must be the base URL (origin) without any path
-    const audience = getAudienceFromUrl(BACKEND_URL);
-    debugLog("AUTH", `Target audience for ID token: ${audience}`);
-    
-    // Get or create the ID token client
-    if (!cachedIdTokenClient) {
-      debugLog("AUTH", "Creating new ID token client...");
-      cachedIdTokenClient = await auth.getIdTokenClient(audience);
-      debugLog("AUTH", "ID token client created successfully");
-    } else {
-      debugLog("AUTH", "Using cached ID token client");
-    }
-    
-    // Get the ID token
-    debugLog("AUTH", "Fetching ID token...");
-    const tokenResponse = await cachedIdTokenClient.getRequestHeaders();
-    debugLog("AUTH", "Token response received", { 
-      hasHeaders: !!tokenResponse,
-      headerKeys: tokenResponse ? Object.keys(tokenResponse) : [],
-      tokenResponseType: typeof tokenResponse,
-    });
-    
-    // tokenResponse is a plain object { Authorization: "Bearer <token>" }
-    // Cast through unknown to avoid TypeScript errors
-    const authHeader = (tokenResponse as unknown as Record<string, string>)?.["Authorization"];
-    
-    if (authHeader) {
-      // Log only first/last few chars of token for debugging
-      const tokenPreview = authHeader.length > 50 
-        ? `${authHeader.substring(0, 25)}...${authHeader.substring(authHeader.length - 15)}`
-        : authHeader;
-      debugLog("AUTH", `Auth token obtained successfully: ${tokenPreview}`);
-      return authHeader;
-    } else {
-      debugLog("AUTH", "WARNING: No Authorization header in token response");
-      debugLog("AUTH", "Full token response:", tokenResponse);
-      
-      // Try alternative: get the token directly from the client
-      debugLog("AUTH", "Attempting to get token via getAccessToken...");
-      const accessTokenResponse = await cachedIdTokenClient.getAccessToken();
-      debugLog("AUTH", "Access token response:", {
-        hasToken: !!accessTokenResponse?.token,
-        tokenLength: accessTokenResponse?.token?.length
-      });
-      
-      if (accessTokenResponse?.token) {
-        const token = `Bearer ${accessTokenResponse.token}`;
-        debugLog("AUTH", "Got token via getAccessToken");
-        return token;
-      }
-      
-      return null;
-    }
-  } catch (error) {
-    debugLog("AUTH", "ERROR getting auth token:", {
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
-      name: error instanceof Error ? error.name : undefined,
-    });
-    
-    // Don't throw - let the request proceed without auth
-    // This allows better error messages from the backend
-    debugLog("AUTH", "Proceeding without auth token due to error");
-    return null;
+  
+  // The audience must be the base URL (origin) without any path
+  const audience = getAudienceFromUrl(BACKEND_URL);
+  debugLog("AUTH", `Target audience: ${audience}`);
+  
+  // Fetch ID token from metadata server
+  const idToken = await fetchIdTokenFromMetadataServer(audience);
+  
+  if (idToken) {
+    const authHeader = `Bearer ${idToken}`;
+    debugLog("AUTH", `Auth header created successfully (length: ${authHeader.length})`);
+    return authHeader;
   }
+  
+  debugLog("AUTH", "WARNING: Failed to obtain ID token");
+  return null;
 }
 
 /**
