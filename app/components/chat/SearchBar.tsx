@@ -2,16 +2,19 @@
 
 import { useState, useRef, useEffect, KeyboardEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Pencil, Send, X } from 'lucide-react';
+import { Search, Pencil, Send, X, ChevronDown, Check } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { MoleculeSearchType } from '../../types/chat';
 
 interface SearchBarProps {
-  onSubmit: (query: string, moleculeData?: { smiles?: string }) => void;
+  onSubmit: (query: string, moleculeData?: { smiles?: string; searchType?: MoleculeSearchType }) => void;
   onDrawMolecule: () => void;
   isCompact?: boolean;
-  moleculeData?: { smiles?: string };
+  moleculeData?: { smiles?: string; searchType?: MoleculeSearchType };
   onClearMolecule?: () => void;
   disabled?: boolean;
+  searchType?: MoleculeSearchType;
+  onSearchTypeChange?: (type: MoleculeSearchType) => void;
 }
 
 export default function SearchBar({
@@ -21,10 +24,14 @@ export default function SearchBar({
   moleculeData,
   onClearMolecule,
   disabled = false,
+  searchType = 'exact',
+  onSearchTypeChange,
 }: SearchBarProps) {
   const [query, setQuery] = useState('');
   const [isFocused, setIsFocused] = useState(false);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!isCompact && inputRef.current) {
@@ -32,9 +39,23 @@ export default function SearchBar({
     }
   }, [isCompact]);
 
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    };
+
+    if (isDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [isDropdownOpen]);
+
   const handleSubmit = () => {
     if (query.trim() || moleculeData?.smiles) {
-      onSubmit(query.trim(), moleculeData);
+      onSubmit(query.trim(), moleculeData ? { ...moleculeData, searchType } : undefined);
       setQuery('');
     }
   };
@@ -82,6 +103,84 @@ export default function SearchBar({
                     ? moleculeData.smiles.substring(0, 30) + '...' 
                     : moleculeData.smiles}
                 </span>
+                
+                {/* Search Type Dropdown */}
+                <div className="relative" ref={dropdownRef}>
+                  <button
+                    onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                    className={cn(
+                      "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all",
+                      "bg-white dark:bg-gray-800 border border-blue-200 dark:border-blue-700",
+                      "hover:border-blue-400 dark:hover:border-blue-500",
+                      "text-blue-700 dark:text-blue-300",
+                      isDropdownOpen && "ring-2 ring-blue-500/20"
+                    )}
+                  >
+                    <span>{searchType === 'exact' ? 'Exact Match' : 'Substructure'}</span>
+                    <ChevronDown className={cn(
+                      "w-3 h-3 transition-transform",
+                      isDropdownOpen && "rotate-180"
+                    )} />
+                  </button>
+                  
+                  <AnimatePresence>
+                    {isDropdownOpen && (
+                      <motion.div
+                        initial={{ opacity: 0, y: isCompact ? 4 : -4, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: isCompact ? 4 : -4, scale: 0.95 }}
+                        transition={{ duration: 0.15 }}
+                        className={cn(
+                          "absolute right-0 z-50 min-w-[160px] py-1",
+                          "bg-white dark:bg-gray-800 rounded-lg shadow-lg border",
+                          "border-gray-200 dark:border-gray-700",
+                          isCompact 
+                            ? "bottom-full mb-1" 
+                            : "top-full mt-1"
+                        )}
+                      >
+                        {[
+                          { value: 'exact' as const, label: 'Exact Match', description: 'Find identical molecules' },
+                          { value: 'substructure' as const, label: 'Substructure', description: 'Find molecules containing this structure' },
+                        ].map((option) => (
+                          <button
+                            key={option.value}
+                            onClick={() => {
+                              onSearchTypeChange?.(option.value);
+                              setIsDropdownOpen(false);
+                            }}
+                            className={cn(
+                              "w-full px-2 py-1.5 text-left hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors",
+                              "flex items-center gap-1.5"
+                            )}
+                          >
+                            <div className="flex-shrink-0">
+                              {searchType === option.value ? (
+                                <Check className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                              ) : (
+                                <div className="w-3.5 h-3.5" />
+                              )}
+                            </div>
+                            <div>
+                              <div className={cn(
+                                "text-xs font-medium",
+                                searchType === option.value 
+                                  ? "text-blue-600 dark:text-blue-400" 
+                                  : "text-gray-900 dark:text-gray-100"
+                              )}>
+                                {option.label}
+                              </div>
+                              <div className="text-[10px] text-gray-500 dark:text-gray-400 leading-tight">
+                                {option.description}
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+                
                 <button
                   onClick={onClearMolecule}
                   className="p-1 hover:bg-blue-100 dark:hover:bg-blue-800 rounded transition-colors"

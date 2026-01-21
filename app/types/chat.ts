@@ -18,10 +18,13 @@ export interface MessageMetadata {
   }>;
 }
 
+export type MoleculeSearchType = 'exact' | 'substructure';
+
 export interface MoleculeData {
   smiles?: string;
   molfile?: string;
   inchi?: string;
+  searchType?: MoleculeSearchType;
 }
 
 export interface ChatState {

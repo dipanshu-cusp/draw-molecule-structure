@@ -8,7 +8,7 @@ import ChatContainer from "./components/chat/ChatContainer";
 import KetcherModal from "./components/chat/KetcherModal";
 import SourcesSidebar from "./components/chat/SourcesSidebar";
 import { useChat } from "./hooks/useChat";
-import { Message } from "./types/chat";
+import { Message, MoleculeSearchType } from "./types/chat";
 
 type Reference = NonNullable<Message["metadata"]>["references"];
 
@@ -17,8 +17,9 @@ export default function Home() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [sidebarReferences, setSidebarReferences] = useState<Reference>([]);
   const [moleculeData, setMoleculeData] = useState<
-    { smiles?: string } | undefined
+    { smiles?: string; searchType?: MoleculeSearchType } | undefined
   >();
+  const [searchType, setSearchType] = useState<MoleculeSearchType>('exact');
 
   const { messages, isLoading, sendMessage, clearMessages } = useChat({
     apiEndpoint: "/api/chat",
@@ -28,30 +29,37 @@ export default function Home() {
   const hasConversation = messages.length > 0;
 
   const handleSubmit = useCallback(
-    (query: string, molecule?: { smiles?: string }) => {
+    (query: string, molecule?: { smiles?: string; searchType?: MoleculeSearchType }) => {
       sendMessage({
         content: query,
-        moleculeData: molecule,
+        moleculeData: molecule ? { ...molecule, searchType: molecule.searchType || searchType } : undefined,
       });
-      setMoleculeData(undefined);
     },
-    [sendMessage]
+    [sendMessage, searchType]
   );
 
   const handleMoleculeConfirm = useCallback(
     (data: { smiles: string; molfile?: string }) => {
-      setMoleculeData({ smiles: data.smiles });
+      setMoleculeData({ smiles: data.smiles, searchType });
     },
-    []
+    [searchType]
   );
 
   const handleClearMolecule = useCallback(() => {
     setMoleculeData(undefined);
   }, []);
 
+  const handleSearchTypeChange = useCallback((type: MoleculeSearchType) => {
+    setSearchType(type);
+    if (moleculeData) {
+      setMoleculeData({ ...moleculeData, searchType: type });
+    }
+  }, [moleculeData]);
+
   const handleNewChat = useCallback(() => {
     clearMessages();
     setMoleculeData(undefined);
+    setSearchType('exact');
   }, [clearMessages]);
 
   const handleRelatedQuestionClick = useCallback(
@@ -168,6 +176,8 @@ export default function Home() {
                   moleculeData={moleculeData}
                   onClearMolecule={handleClearMolecule}
                   disabled={isLoading}
+                  searchType={searchType}
+                  onSearchTypeChange={handleSearchTypeChange}
                 />
               </motion.div>
 
@@ -238,6 +248,8 @@ export default function Home() {
                     moleculeData={moleculeData}
                     onClearMolecule={handleClearMolecule}
                     disabled={isLoading}
+                    searchType={searchType}
+                    onSearchTypeChange={handleSearchTypeChange}
                   />
                 </div>
               </div>

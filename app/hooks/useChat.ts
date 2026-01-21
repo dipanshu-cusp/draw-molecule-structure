@@ -79,6 +79,7 @@ export function useChat(options: UseChatOptions = {}) {
             })),
             moleculeData,
             sessionId: state.sessionId,
+            ...(moleculeData?.smiles && { search_mode: moleculeData.searchType || 'exact' }),
           }),
           signal: abortControllerRef.current.signal,
         });
