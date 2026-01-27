@@ -21,7 +21,7 @@
     "ketcher-react": "^3.8.0",
     "ketcher-standalone": "^3.8.0",
     "lucide-react": "^0.556.0",
-    "next": "16.0.10",
+    "next": "16.1.5",
     "react": "19.2.1",
     "react-dom": "19.2.1",
     "react-markdown": "^10.1.0",
