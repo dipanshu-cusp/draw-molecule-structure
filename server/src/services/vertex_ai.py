@@ -71,6 +71,14 @@ class Reference:
 
 
 @dataclass
+class Citation:
+    """Citation marker with position and reference indices"""
+    start_index: int
+    end_index: int
+    sources: list[int] = field(default_factory=list)  # List of reference indices (0-based)
+
+
+@dataclass
 class StreamChunk:
     """Represents a chunk in the streaming response"""
     type: str  # "chunk", "metadata", or "done"
@@ -79,6 +87,7 @@ class StreamChunk:
     session_id: Optional[str] = None
     related_questions: list[str] = field(default_factory=list)
     references: list[Reference] = field(default_factory=list)
+    citations: list[Citation] = field(default_factory=list)
 
 
 # Cached credentials
@@ -183,6 +192,66 @@ def _parse_references(references_data: list) -> list[Reference]:
     return references
 
 
+def _parse_citations(citations_data: list, references: list[Reference]) -> list[Citation]:
+    """
+    Parse citations from Vertex AI response.
+    
+    The citations data contains startIndex, endIndex, and sources with referenceId.
+    We convert referenceId (like "0", "1") to 0-based indices.
+    """
+    citations = []
+    
+    for cit in citations_data:
+        start_index = cit.get("startIndex", 0)
+        end_index = cit.get("endIndex", 0)
+        sources = cit.get("sources", [])
+        
+        # Extract reference indices from sources
+        ref_indices = []
+        for source in sources:
+            ref_id = source.get("referenceId")
+            if ref_id is not None:
+                try:
+                    # referenceId is a string like "0", "1", etc.
+                    ref_indices.append(int(ref_id))
+                except (ValueError, TypeError):
+                    pass
+        
+        if ref_indices:
+            citations.append(Citation(
+                start_index=start_index,
+                end_index=end_index,
+                sources=ref_indices
+            ))
+    
+    return citations
+
+
+def inject_citation_markers(text: str, citations: list[Citation]) -> str:
+    """
+    Inject citation markers like [1], [2] into the text based on citation positions.
+    
+    Citations are processed in reverse order (from end to start) to preserve
+    character positions as we insert markers.
+    """
+    if not citations or not text:
+        return text
+    
+    # Sort citations by end_index in descending order
+    sorted_citations = sorted(citations, key=lambda c: c.end_index, reverse=True)
+    
+    result = text
+    for citation in sorted_citations:
+        # Build the citation marker string (e.g., "[1]" or "[1][2]" for multiple sources)
+        markers = "".join(f"[{idx + 1}]" for idx in citation.sources)
+        
+        # Insert the marker at the end_index position
+        if citation.end_index <= len(result):
+            result = result[:citation.end_index] + markers + result[citation.end_index:]
+    
+    return result
+
+
 async def stream_answer(
     query: str,
     session_id: Optional[str] = None
@@ -230,9 +299,11 @@ async def stream_answer(
             
             buffer = ""
             last_answer_text = ""
+            last_processed_text = ""  # Text we've actually sent to client (with citations)
             extracted_session_id: Optional[str] = None
             related_questions: list[str] = []
             references: list[Reference] = []
+            citations: list[Citation] = []
             
             async for chunk in response.aiter_bytes():
                 chunk_str = chunk.decode("utf-8")
@@ -294,24 +365,45 @@ async def stream_answer(
                                         session_data.get("name")
                                     )
                                 
+                                # Extract references and citations early
+                                if answer.get("references"):
+                                    references = _parse_references(answer["references"])
+                                
+                                if answer.get("citations"):
+                                    citations = _parse_citations(answer["citations"], references)
+                                
                                 # Handle the final SUCCEEDED state
                                 if answer_state == "SUCCEEDED" and current_answer_text:
-                                    if len(current_answer_text) > len(last_answer_text):
-                                        if current_answer_text.startswith(last_answer_text):
-                                            delta = current_answer_text[len(last_answer_text):]
+                                    # Inject citation markers into the final answer
+                                    if citations:
+                                        current_answer_text = inject_citation_markers(
+                                            current_answer_text, citations
+                                        )
+                                    
+                                    # Always send the final answer with citations as a replace
+                                    # to ensure citations are properly displayed
+                                    if citations and last_answer_text:
+                                        yield StreamChunk(
+                                            type="chunk",
+                                            content=current_answer_text,
+                                            replace=True
+                                        )
+                                    elif len(current_answer_text) > len(last_processed_text):
+                                        if current_answer_text.startswith(last_processed_text):
+                                            delta = current_answer_text[len(last_processed_text):]
                                             if delta:
                                                 yield StreamChunk(
                                                     type="chunk",
                                                     content=delta
                                                 )
                                         else:
-                                            # The final answer differs from streamed content
                                             yield StreamChunk(
                                                 type="chunk",
                                                 content=current_answer_text,
                                                 replace=True
                                             )
-                                        last_answer_text = current_answer_text
+                                    last_answer_text = answer.get("answerText", "")
+                                    last_processed_text = current_answer_text
                                 
                                 # During STREAMING state, show incremental progress
                                 elif answer_state == "STREAMING" and current_answer_text:
@@ -324,6 +416,7 @@ async def stream_answer(
                                                 content=delta
                                             )
                                         last_answer_text = current_answer_text
+                                        last_processed_text = current_answer_text
                                     elif last_answer_text == "" and current_answer_text:
                                         # First content we see
                                         yield StreamChunk(
@@ -331,14 +424,11 @@ async def stream_answer(
                                             content=current_answer_text
                                         )
                                         last_answer_text = current_answer_text
+                                        last_processed_text = current_answer_text
                                 
                                 # Extract related questions (usually in final response)
                                 if answer.get("relatedQuestions"):
                                     related_questions = answer["relatedQuestions"]
-                                
-                                # Extract references
-                                if answer.get("references"):
-                                    references = _parse_references(answer["references"])
                                 
                             except json.JSONDecodeError:
                                 # JSON parsing failed, might be incomplete - keep in buffer
@@ -352,12 +442,13 @@ async def stream_answer(
                 if start_index > 0:
                     buffer = buffer[start_index:]
             
-            # Send metadata
+            # Send metadata with citations for frontend reference
             yield StreamChunk(
                 type="metadata",
                 session_id=extracted_session_id,
                 related_questions=related_questions,
-                references=references
+                references=references,
+                citations=citations
             )
             
             # Send done signal
@@ -458,6 +549,12 @@ async def search_and_answer(
         references = _parse_references(
             answer_data.get("answer", {}).get("references", [])
         )
+        
+        # Extract and apply citations
+        citations_data = answer_data.get("answer", {}).get("citations", [])
+        if citations_data:
+            citations = _parse_citations(citations_data, references)
+            answer_text = inject_citation_markers(answer_text, citations)
         
         # Get final session ID
         final_session_id = (

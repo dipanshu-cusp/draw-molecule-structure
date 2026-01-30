@@ -125,7 +125,7 @@ async def generate_sse_response(
                 yield f"data: {json.dumps(data)}\n\n"
                 
             elif chunk.type == "metadata":
-                # Send metadata (session ID, related questions, references)
+                # Send metadata (session ID, related questions, references, citations)
                 metadata = {
                     "type": "metadata",
                     "sessionId": chunk.session_id,
@@ -133,7 +133,15 @@ async def generate_sse_response(
                     "references": [
                         {"title": ref.title, "uri": ref.uri, "content": ref.content}
                         for ref in chunk.references
-                    ]
+                    ],
+                    "citations": [
+                        {
+                            "startIndex": cit.start_index,
+                            "endIndex": cit.end_index,
+                            "sources": cit.sources
+                        }
+                        for cit in chunk.citations
+                    ] if chunk.citations else []
                 }
                 yield f"data: {json.dumps(metadata)}\n\n"
                 
