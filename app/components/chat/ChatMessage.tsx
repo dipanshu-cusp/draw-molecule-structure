@@ -1,24 +1,23 @@
 "use client";
 
-import { SourceAndReferences, Suggestions } from "@/app/components/chat";
+import { Suggestions } from "@/app/components/chat";
+import { processChildrenWithCitations } from "@/app/components/chat/InlineCitation";
 import { motion } from "framer-motion";
 import { Bot, Check, Copy, User } from "lucide-react";
-import { useState } from "react";
+import React, { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { cn } from "../../lib/utils";
-import { Message, MessageMetadata } from "../../types/chat";
+import { Message } from "../../types/chat";
 
 interface ChatMessageProps {
   message: Message;
   isLatest?: boolean;
   onRelatedQuestionClick?: (question: string) => void;
-  onShowSources?: (references: MessageMetadata["references"]) => void;
 }
 
 export default function ChatMessage({
   message,
   onRelatedQuestionClick,
-  onShowSources,
 }: ChatMessageProps) {
   const [copied, setCopied] = useState(false);
   const isUser = message.role === "user";
@@ -110,10 +109,31 @@ export default function ChatMessage({
             <ReactMarkdown
               components={{
                 p: ({ children }) => (
-                  <p className="mb-3 last:mb-0 leading-relaxed">{children}</p>
+                  <p className="mb-3 last:mb-0 leading-relaxed">
+                    {processChildrenWithCitations(
+                      children,
+                      message.metadata?.references,
+                      isUser
+                    )}
+                  </p>
                 ),
                 strong: ({ children }) => (
-                  <strong className="font-semibold">{children}</strong>
+                  <strong className="font-semibold">
+                    {processChildrenWithCitations(
+                      children,
+                      message.metadata?.references,
+                      isUser
+                    )}
+                  </strong>
+                ),
+                em: ({ children }) => (
+                  <em>
+                    {processChildrenWithCitations(
+                      children,
+                      message.metadata?.references,
+                      isUser
+                    )}
+                  </em>
                 ),
                 ul: ({ children }) => (
                   <ul className="list-disc list-inside mb-3 space-y-1">
@@ -125,7 +145,15 @@ export default function ChatMessage({
                     {children}
                   </ol>
                 ),
-                li: ({ children }) => <li className="ml-2">{children}</li>,
+                li: ({ children }) => (
+                  <li className="ml-2">
+                    {processChildrenWithCitations(
+                      children,
+                      message.metadata?.references,
+                      isUser
+                    )}
+                  </li>
+                ),
                 code: ({ className, children, ...props }) => {
                   // Check if this is inline code or a code block
                   // Code blocks are wrapped in <pre> tags, inline code is not
@@ -180,22 +208,38 @@ export default function ChatMessage({
                         : "border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400"
                     )}
                   >
-                    {children}
+                    {processChildrenWithCitations(
+                      children,
+                      message.metadata?.references,
+                      isUser
+                    )}
                   </blockquote>
                 ),
                 h1: ({ children }) => (
                   <h1 className="text-lg font-bold mb-2 mt-3 first:mt-0">
-                    {children}
+                    {processChildrenWithCitations(
+                      children,
+                      message.metadata?.references,
+                      isUser
+                    )}
                   </h1>
                 ),
                 h2: ({ children }) => (
                   <h2 className="text-base font-bold mb-2 mt-3 first:mt-0">
-                    {children}
+                    {processChildrenWithCitations(
+                      children,
+                      message.metadata?.references,
+                      isUser
+                    )}
                   </h2>
                 ),
                 h3: ({ children }) => (
                   <h3 className="text-sm font-bold mb-1 mt-2 first:mt-0">
-                    {children}
+                    {processChildrenWithCitations(
+                      children,
+                      message.metadata?.references,
+                      isUser
+                    )}
                   </h3>
                 ),
                 br: () => <br />,
@@ -238,14 +282,6 @@ export default function ChatMessage({
         >
           {formatTime(message.timestamp)}
         </span>
-
-        {/* References */}
-        {!isUser && !message.isStreaming && hasMetadata && (
-          <SourceAndReferences
-            message={message}
-            onShowSources={() => onShowSources?.(message.metadata?.references)}
-          />
-        )}
 
         {/* Related Questions */}
         {!isUser && !message.isStreaming && hasMetadata && (

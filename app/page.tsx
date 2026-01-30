@@ -6,16 +6,11 @@ import { FlaskConical, RotateCcw } from "lucide-react";
 import SearchBar from "./components/chat/SearchBar";
 import ChatContainer from "./components/chat/ChatContainer";
 import KetcherModal from "./components/chat/KetcherModal";
-import SourcesSidebar from "./components/chat/SourcesSidebar";
 import { useChat } from "./hooks/useChat";
-import { Message, MoleculeSearchType } from "./types/chat";
-
-type Reference = NonNullable<Message["metadata"]>["references"];
+import { MoleculeSearchType } from "./types/chat";
 
 export default function Home() {
   const [isKetcherOpen, setIsKetcherOpen] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [sidebarReferences, setSidebarReferences] = useState<Reference>([]);
   const [moleculeData, setMoleculeData] = useState<
     { smiles?: string; searchType?: MoleculeSearchType } | undefined
   >();
@@ -70,15 +65,6 @@ export default function Home() {
     },
     [sendMessage]
   );
-
-  const handleShowSources = useCallback((references: Reference) => {
-    setSidebarReferences(references || []);
-    setIsSidebarOpen(true);
-  }, []);
-
-  const handleCloseSidebar = useCallback(() => {
-    setIsSidebarOpen(false);
-  }, []);
 
   return (
     <div
@@ -232,7 +218,6 @@ export default function Home() {
                 messages={messages} 
                 isLoading={isLoading} 
                 onRelatedQuestionClick={handleRelatedQuestionClick}
-                onShowSources={handleShowSources}
               />
 
               {/* Input Area */}
@@ -264,13 +249,6 @@ export default function Home() {
         onClose={() => setIsKetcherOpen(false)}
         onConfirm={handleMoleculeConfirm}
         initialSmiles={moleculeData?.smiles}
-      />
-
-      {/* Sources Sidebar */}
-      <SourcesSidebar
-        isOpen={isSidebarOpen}
-        onClose={handleCloseSidebar}
-        references={sidebarReferences || []}
       />
     </div>
   );
