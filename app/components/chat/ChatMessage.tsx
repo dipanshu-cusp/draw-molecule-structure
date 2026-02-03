@@ -1,9 +1,9 @@
 "use client";
 
-import { SourceAndReferences, Suggestions } from "@/app/components/chat";
+import { Suggestions } from "@/app/components/chat";
 import { motion } from "framer-motion";
 import { Bot, Check, Copy, User } from "lucide-react";
-import { useState } from "react";
+import React, { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { cn } from "../../lib/utils";
 import { Message, MessageMetadata } from "../../types/chat";
@@ -22,6 +22,76 @@ export default function ChatMessage({
 }: ChatMessageProps) {
   const [copied, setCopied] = useState(false);
   const isUser = message.role === "user";
+
+  // Get references for inline citations
+  const references = message.metadata?.references || [];
+
+  // Helper to get source URL with optional page number
+  const getSourceUrl = (uri: string, pageNumber?: number) => {
+    let url = uri;
+    if (uri.startsWith("gs://")) {
+      url = `https://storage.cloud.google.com/${uri.slice(5)}`;
+    }
+    // Add page number fragment for PDFs
+    if (pageNumber && url.toLowerCase().endsWith('.pdf')) {
+      url = `${url}#page=${pageNumber}`;
+    }
+    return url;
+  };
+
+  // Inline citation component
+  const InlineCitation = ({ index }: { index: number }) => {
+    const ref = references[index - 1];
+    if (!ref?.uri) return <sup className="text-blue-400 font-medium">[{index}]</sup>;
+    
+    return (
+      <a
+        href={getSourceUrl(ref.uri, ref.pageNumber)}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center justify-center ml-0.5 px-1.5 py-0.5 text-[10px] 
+          font-semibold rounded-md bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 
+          hover:text-blue-300 border border-blue-500/30 hover:border-blue-400/50
+          transition-all cursor-pointer align-middle no-underline"
+        title={ref.pageNumber ? `${ref.title} (Page ${ref.pageNumber})` : (ref.title || `Source ${index}`)}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {index}
+      </a>
+    );
+  };
+
+  // Process text content to replace citation markers with components
+  const processTextWithCitations = (text: string): React.ReactNode[] => {
+    if (!text || typeof text !== 'string') return [text];
+    
+    // Split by citation patterns like [1], [2], etc.
+    const parts = text.split(/(\[\d+\])/g);
+    return parts.map((part, i) => {
+      const match = part.match(/^\[(\d+)\]$/);
+      if (match) {
+        const citationIndex = parseInt(match[1], 10);
+        return <InlineCitation key={`cite-${i}`} index={citationIndex} />;
+      }
+      return part;
+    });
+  };
+
+  // Recursively process children to add inline citations
+  const processChildren = (children: React.ReactNode): React.ReactNode => {
+    return React.Children.map(children, (child) => {
+      if (typeof child === 'string') {
+        return processTextWithCitations(child);
+      }
+      if (React.isValidElement(child) && child.props.children) {
+        return React.cloneElement(child, {
+          ...child.props,
+          children: processChildren(child.props.children),
+        } as React.HTMLAttributes<HTMLElement>);
+      }
+      return child;
+    });
+  };
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(message.content);
@@ -110,10 +180,10 @@ export default function ChatMessage({
             <ReactMarkdown
               components={{
                 p: ({ children }) => (
-                  <p className="mb-3 last:mb-0 leading-relaxed">{children}</p>
+                  <p className="mb-3 last:mb-0 leading-relaxed">{processChildren(children)}</p>
                 ),
                 strong: ({ children }) => (
-                  <strong className="font-semibold">{children}</strong>
+                  <strong className="font-semibold">{processChildren(children)}</strong>
                 ),
                 ul: ({ children }) => (
                   <ul className="list-disc list-inside mb-3 space-y-1">
@@ -125,7 +195,7 @@ export default function ChatMessage({
                     {children}
                   </ol>
                 ),
-                li: ({ children }) => <li className="ml-2">{children}</li>,
+                li: ({ children }) => <li className="ml-2">{processChildren(children)}</li>,
                 code: ({ className, children, ...props }) => {
                   // Check if this is inline code or a code block
                   // Code blocks are wrapped in <pre> tags, inline code is not
@@ -238,14 +308,6 @@ export default function ChatMessage({
         >
           {formatTime(message.timestamp)}
         </span>
-
-        {/* References */}
-        {!isUser && !message.isStreaming && hasMetadata && (
-          <SourceAndReferences
-            message={message}
-            onShowSources={() => onShowSources?.(message.metadata?.references)}
-          />
-        )}
 
         {/* Related Questions */}
         {!isUser && !message.isStreaming && hasMetadata && (

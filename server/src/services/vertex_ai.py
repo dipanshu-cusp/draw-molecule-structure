@@ -68,6 +68,7 @@ class Reference:
     title: Optional[str] = None
     uri: Optional[str] = None
     content: Optional[str] = None
+    page_number: Optional[int] = None
 
 
 @dataclass
@@ -157,6 +158,24 @@ def _extract_session_id(session_name: Optional[str]) -> Optional[str]:
     return parts[1] if len(parts) > 1 else None
 
 
+def _extract_page_number(content: Optional[str]) -> Optional[int]:
+    """
+    Extract page number from content if it starts with a page number.
+    Vertex AI often includes page numbers at the start of content like '206 Chapter 5...'
+    """
+    if not content:
+        return None
+    
+    # Pattern: starts with a number (page number) followed by space
+    match = re.match(r'^(\d+)\s', content.strip())
+    if match:
+        try:
+            return int(match.group(1))
+        except ValueError:
+            return None
+    return None
+
+
 def _parse_references(references_data: list) -> list[Reference]:
     """Parse references from Vertex AI response"""
     references = []
@@ -166,21 +185,114 @@ def _parse_references(references_data: list) -> list[Reference]:
             info = ref["unstructuredDocumentInfo"]
             chunk_contents = info.get("chunkContents", [])
             content = chunk_contents[0].get("content") if chunk_contents else None
+            page_number = _extract_page_number(content)
             references.append(Reference(
                 title=info.get("title"),
                 uri=info.get("uri"),
-                content=content
+                content=content,
+                page_number=page_number
             ))
         elif "chunkInfo" in ref:
             info = ref["chunkInfo"]
             doc_metadata = info.get("documentMetadata", {})
+            content = info.get("content")
+            page_number = _extract_page_number(content)
             references.append(Reference(
                 title=doc_metadata.get("title"),
                 uri=doc_metadata.get("uri"),
-                content=info.get("content")
+                content=content,
+                page_number=page_number
             ))
     
     return references
+
+
+def inject_citations_into_text(
+    answer_text: str, 
+    citations: list, 
+    references: list[Reference]
+) -> str:
+    """
+    Inject citation markers into the answer text based on the citations array.
+    
+    The Vertex AI API returns a citations array with startIndex and endIndex
+    that indicates where in the text each citation applies.
+    
+    If citations are not already in the text (as [1], [2], etc.), this function
+    adds them at the appropriate positions.
+    """
+    if not answer_text:
+        return answer_text
+    
+    # Check if the text already has citation markers
+    if re.search(r'\[\d+\]', answer_text):
+        return answer_text
+    
+    # If no citations array but we have references, add citations at paragraph ends
+    if not citations and references:
+        paragraphs = answer_text.split('\n\n')
+        if len(paragraphs) > 1:
+            # Distribute references across paragraphs
+            result_paragraphs = []
+            refs_per_paragraph = max(1, len(references) // len(paragraphs))
+            ref_index = 0
+            
+            for i, para in enumerate(paragraphs):
+                if para.strip() and ref_index < len(references):
+                    # Add citations at the end of this paragraph
+                    end_ref = min(ref_index + refs_per_paragraph, len(references))
+                    citation_markers = "".join(f"[{j+1}]" for j in range(ref_index, end_ref))
+                    result_paragraphs.append(para.rstrip() + " " + citation_markers)
+                    ref_index = end_ref
+                else:
+                    result_paragraphs.append(para)
+            
+            return '\n\n'.join(result_paragraphs)
+        else:
+            # Single paragraph - add all citations at the end
+            citation_markers = "".join(f"[{i+1}]" for i in range(len(references)))
+            return answer_text.rstrip() + " " + citation_markers
+    
+    if not citations:
+        return answer_text
+    
+    # Build a list of insertions (position, citation_text)
+    insertions = []
+    
+    for citation in citations:
+        sources = citation.get("sources", [])
+        end_index = citation.get("endIndex")
+        
+        if not sources or end_index is None:
+            continue
+        
+        # Collect all reference indices for this citation
+        ref_indices = []
+        for source in sources:
+            # Vertex AI returns 'referenceId' as a string, e.g., "0", "1"
+            ref_id = source.get("referenceId") or source.get("referenceIndex")
+            if ref_id is not None:
+                try:
+                    ref_indices.append(int(ref_id) + 1)  # 1-indexed for display
+                except (ValueError, TypeError):
+                    pass
+        
+        if ref_indices:
+            # Create citation marker(s)
+            citation_text = "".join(f"[{idx}]" for idx in sorted(set(ref_indices)))
+            insertions.append((int(end_index), citation_text))
+    
+    # Sort insertions by position in reverse order (so we can insert from end to start)
+    insertions.sort(key=lambda x: x[0], reverse=True)
+    
+    # Insert citation markers
+    result = answer_text
+    for position, citation_text in insertions:
+        # Make sure position is within bounds
+        if position <= len(result):
+            result = result[:position] + citation_text + result[position:]
+    
+    return result
 
 
 async def stream_answer(
@@ -233,6 +345,8 @@ async def stream_answer(
             extracted_session_id: Optional[str] = None
             related_questions: list[str] = []
             references: list[Reference] = []
+            citations: list = []  # Store citations for final processing
+            final_answer_text = ""  # Store the complete answer text
             
             async for chunk in response.aiter_bytes():
                 chunk_str = chunk.decode("utf-8")
@@ -296,6 +410,7 @@ async def stream_answer(
                                 
                                 # Handle the final SUCCEEDED state
                                 if answer_state == "SUCCEEDED" and current_answer_text:
+                                    final_answer_text = current_answer_text
                                     if len(current_answer_text) > len(last_answer_text):
                                         if current_answer_text.startswith(last_answer_text):
                                             delta = current_answer_text[len(last_answer_text):]
@@ -315,6 +430,7 @@ async def stream_answer(
                                 
                                 # During STREAMING state, show incremental progress
                                 elif answer_state == "STREAMING" and current_answer_text:
+                                    final_answer_text = current_answer_text  # Keep updating final text
                                     if (len(current_answer_text) > len(last_answer_text) and 
                                         current_answer_text.startswith(last_answer_text)):
                                         delta = current_answer_text[len(last_answer_text):]
@@ -340,6 +456,10 @@ async def stream_answer(
                                 if answer.get("references"):
                                     references = _parse_references(answer["references"])
                                 
+                                # Extract citations (for injecting into text)
+                                if answer.get("citations"):
+                                    citations = answer["citations"]
+                                
                             except json.JSONDecodeError:
                                 # JSON parsing failed, might be incomplete - keep in buffer
                                 pass
@@ -351,6 +471,19 @@ async def stream_answer(
                 # Keep unparsed content in buffer
                 if start_index > 0:
                     buffer = buffer[start_index:]
+            
+            # After streaming is complete, inject citations into the final text if needed
+            if final_answer_text and references:
+                enriched_text = inject_citations_into_text(
+                    final_answer_text, citations, references
+                )
+                # If citations were injected (text changed), send a replace chunk
+                if enriched_text != final_answer_text:
+                    yield StreamChunk(
+                        type="chunk",
+                        content=enriched_text,
+                        replace=True
+                    )
             
             # Send metadata
             yield StreamChunk(
