@@ -83,11 +83,13 @@ export default function ChatMessage({
       if (typeof child === 'string') {
         return processTextWithCitations(child);
       }
-      if (React.isValidElement(child) && child.props.children) {
-        return React.cloneElement(child, {
-          ...child.props,
-          children: processChildren(child.props.children),
-        } as React.HTMLAttributes<HTMLElement>);
+      if (React.isValidElement(child)) {
+        const element = child as React.ReactElement<{ children?: React.ReactNode }>;
+        if (element.props.children) {
+          return React.cloneElement(element, {
+            children: processChildren(element.props.children),
+          });
+        }
       }
       return child;
     });
