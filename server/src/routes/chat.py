@@ -131,7 +131,12 @@ async def generate_sse_response(
                     "sessionId": chunk.session_id,
                     "relatedQuestions": chunk.related_questions,
                     "references": [
-                        {"title": ref.title, "uri": ref.uri, "content": ref.content}
+                        {
+                            "title": ref.title, 
+                            "uri": ref.uri, 
+                            "content": ref.content,
+                            "pageNumber": ref.page_number
+                        }
                         for ref in chunk.references
                     ]
                 }

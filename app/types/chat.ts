@@ -15,6 +15,7 @@ export interface MessageMetadata {
     title?: string;
     uri?: string;
     content?: string;
+    pageNumber?: number;
   }>;
 }
 
