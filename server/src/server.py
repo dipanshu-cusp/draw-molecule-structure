@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.database import init_db, close_db
 from src.routes.chat import router as chat_router
+from src.routes.notebooks import router as notebooks_router
 
 # Configure logging
 logging.basicConfig(
@@ -72,6 +73,7 @@ app.add_middleware(
 )
 
 app.include_router(chat_router, prefix="/chat", tags=["chat"])
+app.include_router(notebooks_router, prefix="/notebooks", tags=["notebooks"])
 
 
 @app.get("/health")

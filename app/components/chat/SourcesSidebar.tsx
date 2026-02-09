@@ -7,18 +7,21 @@ interface Reference {
   title?: string;
   uri?: string;
   content?: string;
+  pageNumber?: number;
 }
 
 interface SourcesSidebarProps {
   isOpen: boolean;
   onClose: () => void;
   references: Reference[];
+  onViewPDF?: (url: string, title: string, pageNumber?: number) => void;
 }
 
 export default function SourcesSidebar({
   isOpen,
   onClose,
   references,
+  onViewPDF,
 }: SourcesSidebarProps) {
   const getSourceUrl = (uri: string) => {
     if (uri.startsWith("gs://")) {
@@ -108,17 +111,29 @@ export default function SourcesSidebar({
 
                         {/* Link */}
                         {ref.uri && (
-                          <a
-                            href={getSourceUrl(ref.uri)}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                          <button
+                            onClick={() => {
+                              if (onViewPDF) {
+                                onViewPDF(
+                                  ref.uri!,
+                                  ref.title || "Source Document",
+                                  ref.pageNumber
+                                );
+                                onClose();
+                              } else {
+                                window.open(
+                                  getSourceUrl(ref.uri!),
+                                  "_blank"
+                                );
+                              }
+                            }}
                             className="inline-flex items-center gap-1.5 text-sm text-blue-500 
                               hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 
                               font-medium transition-colors"
                           >
                             <ExternalLink className="w-3.5 h-3.5" />
-                            Open source
-                          </a>
+                            View document
+                          </button>
                         )}
                       </div>
                     </div>

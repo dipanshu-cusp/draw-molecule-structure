@@ -13,12 +13,14 @@ interface ChatMessageProps {
   isLatest?: boolean;
   onRelatedQuestionClick?: (question: string) => void;
   onShowSources?: (references: MessageMetadata["references"]) => void;
+  onViewPDF?: (url: string, title: string, pageNumber?: number) => void;
 }
 
 export default function ChatMessage({
   message,
   onRelatedQuestionClick,
   onShowSources,
+  onViewPDF,
 }: ChatMessageProps) {
   const [copied, setCopied] = useState(false);
   const isUser = message.role === "user";
@@ -44,20 +46,27 @@ export default function ChatMessage({
     const ref = references[index - 1];
     if (!ref?.uri) return <sup className="text-blue-400 font-medium">[{index}]</sup>;
     
+    const handleClick = (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (onViewPDF && ref.uri) {
+        onViewPDF(ref.uri, ref.title || `Source ${index}`, ref.pageNumber);
+      } else {
+        window.open(getSourceUrl(ref.uri!, ref.pageNumber), "_blank");
+      }
+    };
+    
     return (
-      <a
-        href={getSourceUrl(ref.uri, ref.pageNumber)}
-        target="_blank"
-        rel="noopener noreferrer"
+      <button
+        onClick={handleClick}
         className="inline-flex items-center justify-center ml-0.5 px-1.5 py-0.5 text-[10px] 
           font-semibold rounded-md bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 
           hover:text-blue-300 border border-blue-500/30 hover:border-blue-400/50
-          transition-all cursor-pointer align-middle no-underline"
+          transition-all cursor-pointer align-middle"
         title={ref.pageNumber ? `${ref.title} (Page ${ref.pageNumber})` : (ref.title || `Source ${index}`)}
-        onClick={(e) => e.stopPropagation()}
       >
         {index}
-      </a>
+      </button>
     );
   };
 

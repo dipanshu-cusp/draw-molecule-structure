@@ -13,6 +13,7 @@ interface ChatContainerProps {
   className?: string;
   onRelatedQuestionClick?: (question: string) => void;
   onShowSources?: (references: MessageMetadata["references"]) => void;
+  onViewPDF?: (url: string, title: string, pageNumber?: number) => void;
 }
 
 export default function ChatContainer({
@@ -21,6 +22,7 @@ export default function ChatContainer({
   className,
   onRelatedQuestionClick,
   onShowSources,
+  onViewPDF,
 }: ChatContainerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -45,6 +47,7 @@ export default function ChatContainer({
             isLatest={index === messages.length - 1}
             onRelatedQuestionClick={onRelatedQuestionClick}
             onShowSources={onShowSources}
+            onViewPDF={onViewPDF}
           />
         ))}
 

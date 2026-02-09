@@ -5,3 +5,6 @@ export { default as KetcherModal } from "./KetcherModal";
 export { default as SourceAndReferences } from "./references";
 export { default as Suggestions } from "./suggestions";
 export { default as SourcesSidebar } from "./SourcesSidebar";
+export { default as PDFViewerModal } from "../document-visualization/PDFViewerModal";
+export { default as DocumentBrowser } from "../document-visualization/DocumentBrowser";
+export { default as ModeSwitcher } from "./ModeSwitcher";
