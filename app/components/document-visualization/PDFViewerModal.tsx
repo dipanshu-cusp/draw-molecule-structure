@@ -114,6 +114,31 @@ function PlaceholderPill({ label }: { label: string }) {
   );
 }
 
+function PDFFrame({ src, title }: { src: string; title: string }) {
+  const [isLoading, setIsLoading] = useState(true);
+
+  return (
+    <>
+      {isLoading && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gray-100 dark:bg-gray-900 z-10">
+          <div className="flex flex-col items-center gap-3">
+            <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+            <span className="text-sm text-gray-500 dark:text-gray-400">
+              Loading document...
+            </span>
+          </div>
+        </div>
+      )}
+      <iframe
+        src={src}
+        className="w-full h-full border-0"
+        title={title}
+        onLoad={() => setIsLoading(false)}
+      />
+    </>
+  );
+}
+
 export default function PDFViewerModal({
   isOpen,
   onClose,
@@ -124,15 +149,6 @@ export default function PDFViewerModal({
   onFindSimilar,
   onFlagIssue,
 }: PDFViewerModalProps) {
-  const [isLoading, setIsLoading] = useState(true);
-
-  // Reset loading state when modal opens or URL changes
-  useEffect(() => {
-    if (isOpen) {
-      setIsLoading(true);
-    }
-  }, [isOpen, url]);
-
   // Handle escape key & lock body scroll
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -173,6 +189,8 @@ export default function PDFViewerModal({
     }
     window.open(externalUrl, "_blank");
   };
+
+  const pdfUrl = getPdfUrl();
 
   return (
     <AnimatePresence>
@@ -245,21 +263,10 @@ export default function PDFViewerModal({
             <div className="flex-1 flex min-h-0">
               {/* PDF Viewer (left) */}
               <div className="flex-1 relative bg-gray-200 dark:bg-gray-950 min-w-0">
-                {isLoading && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-gray-100 dark:bg-gray-900 z-10">
-                    <div className="flex flex-col items-center gap-3">
-                      <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
-                      <span className="text-sm text-gray-500 dark:text-gray-400">
-                        Loading document...
-                      </span>
-                    </div>
-                  </div>
-                )}
-                <iframe
-                  src={getPdfUrl()}
-                  className="w-full h-full border-0"
+                <PDFFrame
+                  key={pdfUrl}
+                  src={pdfUrl}
                   title={title}
-                  onLoad={() => setIsLoading(false)}
                 />
               </div>
 

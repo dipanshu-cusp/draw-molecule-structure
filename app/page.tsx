@@ -7,7 +7,6 @@ import ChatContainer from "./components/chat/ChatContainer";
 import KetcherModal from "./components/chat/KetcherModal";
 import ModeSwitcher from "./components/chat/ModeSwitcher";
 import SearchBar from "./components/chat/SearchBar";
-import SourcesSidebar from "./components/chat/SourcesSidebar";
 import DocumentBrowser, {
   addRecentDocument,
 } from "./components/document-visualization/DocumentBrowser";
@@ -15,13 +14,10 @@ import PDFViewerModal from "./components/document-visualization/PDFViewerModal";
 import { useChat } from "./hooks/useChat";
 import {
   AppMode,
-  Message,
   MoleculeSearchType,
   NotebookMetadata,
   PDFViewerState,
 } from "./types/chat";
-
-type Reference = NonNullable<Message["metadata"]>["references"];
 
 export default function Home() {
   // ── Mode ────────────────────────────────────────────────────────
@@ -29,8 +25,6 @@ export default function Home() {
 
   // ── Search mode state ──────────────────────────────────────────
   const [isKetcherOpen, setIsKetcherOpen] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [sidebarReferences, setSidebarReferences] = useState<Reference>([]);
   const [moleculeData, setMoleculeData] = useState<
     { smiles?: string; searchType?: MoleculeSearchType } | undefined
   >();
@@ -99,15 +93,6 @@ export default function Home() {
     },
     [sendMessage],
   );
-
-  const handleShowSources = useCallback((references: Reference) => {
-    setSidebarReferences(references || []);
-    setIsSidebarOpen(true);
-  }, []);
-
-  const handleCloseSidebar = useCallback(() => {
-    setIsSidebarOpen(false);
-  }, []);
 
   // ── PDF Viewer handlers (shared) ──────────────────────────────
   const handleViewPDF = useCallback(
@@ -329,7 +314,6 @@ export default function Home() {
                 messages={messages}
                 isLoading={isLoading}
                 onRelatedQuestionClick={handleRelatedQuestionClick}
-                onShowSources={handleShowSources}
                 onViewPDF={handleViewPDF}
               />
 
@@ -362,14 +346,6 @@ export default function Home() {
         onClose={() => setIsKetcherOpen(false)}
         onConfirm={handleMoleculeConfirm}
         initialSmiles={moleculeData?.smiles}
-      />
-
-      {/* Sources Sidebar */}
-      <SourcesSidebar
-        isOpen={isSidebarOpen}
-        onClose={handleCloseSidebar}
-        references={sidebarReferences || []}
-        onViewPDF={handleViewPDF}
       />
 
       {/* PDF Viewer Modal */}

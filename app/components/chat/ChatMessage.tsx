@@ -6,20 +6,18 @@ import { Bot, Check, Copy, User } from "lucide-react";
 import React, { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { cn } from "../../lib/utils";
-import { Message, MessageMetadata } from "../../types/chat";
+import { Message } from "../../types/chat";
 
 interface ChatMessageProps {
   message: Message;
   isLatest?: boolean;
   onRelatedQuestionClick?: (question: string) => void;
-  onShowSources?: (references: MessageMetadata["references"]) => void;
   onViewPDF?: (url: string, title: string, pageNumber?: number) => void;
 }
 
 export default function ChatMessage({
   message,
   onRelatedQuestionClick,
-  onShowSources,
   onViewPDF,
 }: ChatMessageProps) {
   const [copied, setCopied] = useState(false);

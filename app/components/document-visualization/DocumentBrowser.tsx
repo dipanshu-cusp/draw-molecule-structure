@@ -100,7 +100,7 @@ export default function DocumentBrowser({
         const data = await res.json();
         setNotebooks(data.notebooks || []);
       }
-    } catch (error) {
+    } catch {
       setNotebooks([]);
     } finally {
       setIsLoading(false);
